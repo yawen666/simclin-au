@@ -65,6 +65,10 @@ Fastify API; the DeepSeek key is entered in Render as a secret and is never
 bundled into the browser. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the
 publishing checklist, environment variables, and free-tier limitations.
 
+The `docs/` directory also contains a standalone, bilingual product showcase
+for GitHub Pages. The `Publish product site` workflow publishes it whenever
+the `docs/` content changes.
+
 The free deployment is intended for a short internal demonstration. SQLite is
 stored on the API filesystem, so records can reset when a free instance is
 restarted or redeployed. Use a persistent PostgreSQL deployment before any

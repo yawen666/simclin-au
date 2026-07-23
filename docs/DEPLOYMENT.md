@@ -47,6 +47,25 @@ The API must use `HOST=0.0.0.0`; Render supplies the runtime `PORT`. The
 frontend is built with `VITE_API_BASE_URL`, while the API allows that origin via
 `WEB_ORIGIN`.
 
+## GitHub Pages product showcase
+
+The public-facing introduction site is [`docs/index.html`](index.html). It is
+a static, bilingual page with screenshots of the synthetic student and faculty
+flows. The `Publish product site` workflow uploads the whole `docs/` directory
+to GitHub Pages after a push to `main` or `master`.
+
+After the first successful workflow run, enable **Settings > Pages > GitHub
+Actions** if GitHub has not selected the workflow automatically. A project site
+will normally be available at:
+
+```text
+https://<github-username>.github.io/<repository-name>/
+```
+
+This showcase is intentionally separate from the live application: GitHub
+Pages displays the product story and screenshots, while the Render deployment
+hosts the interactive Vue application and its API.
+
 ## Important free-tier limitation
 
 The current app stores sessions, results, drafts, and uploads in SQLite under
