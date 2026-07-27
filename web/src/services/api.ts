@@ -50,7 +50,9 @@ class ApiClient {
   async getSession(id: string) { const data = (await this.http.get<ClinicalSession & { session?: ClinicalSession }>(`/sessions/${id}`)).data; return data.session ?? data }
   async getSessions() { return (await this.http.get<{ items: ClinicalSession[] } | ClinicalSession[]>('/sessions')).data }
   async completeSession(id: string) {
-    const data = (await this.http.post<{ resultId?: string; result?: { id: string }; session?: ClinicalSession }>(`/sessions/${id}/complete`, undefined, { timeout: 120_000 })).data
+    // Send an explicit empty JSON object so Fastify's JSON parser never sees
+    // an empty request body with an application/json content type.
+    const data = (await this.http.post<{ resultId?: string; result?: { id: string }; session?: ClinicalSession }>(`/sessions/${id}/complete`, {}, { timeout: 120_000 })).data
     return { ...data, resultId: data.resultId ?? String(data.result?.id ?? '') }
   }
 
