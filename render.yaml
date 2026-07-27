@@ -4,7 +4,10 @@ services:
     runtime: node
     plan: free
     rootDir: server
-    buildCommand: npm ci && npm run build
+    # Render may set NODE_ENV=production during the image build. Keep dev
+    # dependencies available here because TypeScript and its type definitions
+    # are required to compile the server before the production start command.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
@@ -35,7 +38,7 @@ services:
     name: simclin-au-web
     runtime: static
     rootDir: web
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE_URL
