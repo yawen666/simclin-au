@@ -275,6 +275,27 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       const transcript = getTurns(db, id);
       const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
 
+      // Fastify's normal response lifecycle applies CORS headers when it sends
+      // a response. This endpoint hijacks the raw response for SSE, so mirror
+      // the headers that earlier hooks (notably @fastify/cors) have prepared
+      // before flushing the raw response.
+      const preparedHeaders = reply.getHeaders();
+      reply.hijack();
+      reply.raw.statusCode = 200;
+      for (const [name, value] of Object.entries(preparedHeaders)) {
+        if (value !== undefined) reply.raw.setHeader(name, value);
+      }
+      reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+      reply.raw.setHeader('Connection', 'keep-alive');
+      reply.raw.setHeader('X-Accel-Buffering', 'no');
+      reply.raw.flushHeaders();
+      const send = (event: string, data: unknown) => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      send('meta', { type: 'meta', studentTurnId: Number(studentResult.lastInsertRowid) });
+      const heartbeat = setInterval(() => {
+        if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(': keep-alive\n\n');
+      }, 10_000);
+
       let planner;
       const plannerStarted = Date.now();
       try {
@@ -293,7 +314,14 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         });
         db.prepare("UPDATE turns SET status='failed' WHERE id=?").run(Number(studentResult.lastInsertRowid));
         activeMessageSessions.delete(id);
-        throw error;
+        clearInterval(heartbeat);
+        send('error', {
+          type: 'error',
+          code: 'DISCLOSURE_PLANNER_FAILED',
+          message: 'The simulated patient could not respond. Please retry.',
+        });
+        reply.raw.end();
+        return;
       }
       const permittedFacts = collectPermittedFacts(content, planner.disclosedFactIds);
       const validDisclosedFactIds = permittedFacts.flatMap((fact) => {
@@ -303,13 +331,6 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         return factId ? [factId] : [];
       });
 
-      reply.hijack();
-      reply.raw.statusCode = 200;
-      reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-      reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
-      reply.raw.setHeader('Connection', 'keep-alive');
-      const send = (event: string, data: unknown) => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      send('meta', { type: 'meta', studentTurnId: Number(studentResult.lastInsertRowid) });
       let patientReply = '';
       const actorStarted = Date.now();
       try {
@@ -343,6 +364,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         });
         send('error', { type: 'error', code: 'PATIENT_RESPONSE_FAILED', message: 'The simulated patient could not respond. Please retry.' });
       } finally {
+        clearInterval(heartbeat);
         activeMessageSessions.delete(id);
         reply.raw.end();
       }

@@ -115,11 +115,13 @@ describe('API integration', () => {
     const sessionId = start.json().session.id as number;
 
     const message = await app.inject({
-      method: 'POST', url: `/api/sessions/${sessionId}/messages`, headers: auth,
+      method: 'POST', url: `/api/sessions/${sessionId}/messages`,
+      headers: { ...auth, origin: 'http://localhost:5173' },
       payload: { message: 'Could you tell me more about what brought you in today?' },
     });
     expect(message.statusCode).toBe(200);
     expect(message.headers['content-type']).toContain('text/event-stream');
+    expect(message.headers['access-control-allow-origin']).toBe('http://localhost:5173');
     expect(message.body).toContain('event: delta');
     expect(message.body).toContain('event: complete');
 
