@@ -144,6 +144,7 @@ describe('API integration', () => {
     expect(result.criteria.length).toBeGreaterThan(0);
     expect(result.transcript.every((turn: { createdAt?: string }) => typeof turn.createdAt === 'string')).toBe(true);
     expect(result.criteria.every((criterion: { evidenceStatus: string }) => criterion.evidenceStatus === 'covered')).toBe(true);
+    expect(result.criteria.every((criterion: { feedback: string }) => !/\bturn\s+\d+\b/i.test(criterion.feedback))).toBe(true);
     const repeatedComplete = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers: auth });
     expect(repeatedComplete.json().resultId).toBe(String(result.id));
 
@@ -164,7 +165,7 @@ describe('API integration', () => {
     expect((db.prepare('SELECT COUNT(*) AS count FROM model_runs').get() as { count: number }).count).toBe(3);
     expect((db.prepare('SELECT DISTINCT provider FROM model_runs').all() as Array<{ provider: string }>).map((row) => row.provider)).toEqual(['mock']);
     expect((db.prepare('SELECT purpose,prompt_version AS promptVersion FROM model_runs ORDER BY id').all() as Array<{ purpose: string; promptVersion: string }>).map((row) => `${row.purpose}:${row.promptVersion}`)).toEqual([
-      'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v3',
+      'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v4',
     ]);
   });
 

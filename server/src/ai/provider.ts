@@ -282,7 +282,7 @@ export class MockAiProvider implements AiProvider {
           criterion_id: criterion.id,
           score: studentIds.length ? 2 : 0,
           evidence_turn_ids: studentIds.slice(0, 2),
-          feedback: studentIds.length ? 'The student demonstrated this behaviour; add more precision and structure.' : 'No transcript evidence.',
+          feedback: studentIds.length ? `The student demonstrated this behaviour (turn ${studentIds[0]}); add more precision and structure.` : 'No transcript evidence.',
         })),
         missed_red_flags: [],
         strengths: ['Used patient-centred questions.'],

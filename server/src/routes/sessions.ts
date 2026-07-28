@@ -106,6 +106,20 @@ export function redFlagLabelMap(content: Record<string, unknown>): Map<string, s
   return labels;
 }
 
+function removeTurnNumberReferences(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value
+      .replace(/\s*\((?:student\s+)?turns?\s+\d+(?:\s*(?:,|and)\s*\d+)*\)/gi, '')
+      .replace(/\b(?:student\s+)?turns?\s+\d+(?:\s*(?:,|and)\s*\d+)*/gi, 'the cited question')
+      .replace(/\s+([,.;:!?])/g, '$1');
+  }
+  if (Array.isArray(value)) return value.map(removeTurnNumberReferences);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, removeTurnNumberReferences(item)]));
+  }
+  return value;
+}
+
 function serializeResult(db: AppDatabase, sessionId: number) {
   const evaluation = db.prepare(`SELECT e.*,s.case_id,c.title,c.specialty,s.started_at,s.completed_at,s.duration_seconds,
     u.display_name AS student_name,rv.criteria_json,cv.content_json,
@@ -122,7 +136,9 @@ function serializeResult(db: AppDatabase, sessionId: number) {
   const finalLevel = finalScore >= 85 ? 'Excellent' : finalScore >= 70 ? 'Competent' : finalScore >= 50 ? 'Developing' : 'Needs improvement';
   const rubric = parseJson<RubricCriterion[]>(String(evaluation.criteria_json), []);
   const rubricById = new Map(rubric.map((item) => [item.id, item]));
-  const feedback = parseJson<Record<string, unknown>>(String(evaluation.feedback_json), {});
+  const feedback = removeTurnNumberReferences(
+    parseJson<Record<string, unknown>>(String(evaluation.feedback_json), {}),
+  ) as Record<string, unknown>;
   const scoring = feedback.scoring && typeof feedback.scoring === 'object'
     ? feedback.scoring as Record<string, unknown>
     : {};
@@ -186,7 +202,7 @@ function serializeResult(db: AppDatabase, sessionId: number) {
           const turn = transcriptById.get(turnId);
           return turn ? [{ turnId: String(turnId), quote: turn.content }] : [];
         }),
-        feedback: item.feedback,
+        feedback: removeTurnNumberReferences(item.feedback),
       };
     }),
     transcript,
