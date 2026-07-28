@@ -365,6 +365,7 @@ Object.assign(zh, {
   'domain score': '评价域得分',
   'domain weight': '评价域权重',
   'Safety cap applied': '已应用安全封顶',
+  'Safety score ceiling': '安全评分上限',
   'A safety-critical history element was not elicited.': '未采集到一项安全关键病史。',
   'This is a product-defined formative score, not a validated high-stakes examination result. Review the linked transcript evidence for each domain.': '这是产品定义的形成性评分，并非经过验证的高风险考试成绩。请结合每个评价域所关联的原始对话证据查看。',
   'weight': '权重',
