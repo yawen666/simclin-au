@@ -142,6 +142,7 @@ describe('API integration', () => {
     const result = await waitForEvaluation(sessionId, auth);
     expect(result.score).toBeGreaterThan(0);
     expect(result.criteria.length).toBeGreaterThan(0);
+    expect(result.transcript.every((turn: { createdAt?: string }) => typeof turn.createdAt === 'string')).toBe(true);
     expect(result.criteria.every((criterion: { evidenceStatus: string }) => criterion.evidenceStatus === 'covered')).toBe(true);
     const repeatedComplete = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers: auth });
     expect(repeatedComplete.json().resultId).toBe(String(result.id));

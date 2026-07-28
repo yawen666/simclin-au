@@ -11,6 +11,7 @@ export interface TranscriptTurn {
   speaker: 'student' | 'patient' | 'system';
   content: string;
   status?: 'pending' | 'completed' | 'failed';
+  createdAt?: string;
 }
 
 export interface PlannerInput {

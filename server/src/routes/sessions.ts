@@ -46,7 +46,8 @@ function getSession(db: AppDatabase, sessionId: number, userId: number, role: st
 }
 
 function getTurns(db: AppDatabase, sessionId: number): TranscriptTurn[] {
-  return db.prepare(`SELECT id,sequence,speaker,content,status FROM turns WHERE session_id=? ORDER BY sequence`).all(sessionId) as TranscriptTurn[];
+  return db.prepare(`SELECT id,sequence,speaker,content,status,created_at AS createdAt
+    FROM turns WHERE session_id=? ORDER BY sequence`).all(sessionId) as TranscriptTurn[];
 }
 
 type EvidenceStatus = 'covered' | 'asked_no_credit' | 'not_asked';
@@ -130,7 +131,13 @@ function serializeResult(db: AppDatabase, sessionId: number) {
   const missedRedFlagIds = Array.isArray(feedback.missed_red_flags)
     ? feedback.missed_red_flags.filter((value): value is string => typeof value === 'string')
     : [];
-  const transcript = getTurns(db, sessionId).map((turn) => ({ id: String(turn.id), role: turn.speaker, content: turn.content, status: turn.status }));
+  const transcript = getTurns(db, sessionId).map((turn) => ({
+    id: String(turn.id),
+    role: turn.speaker,
+    content: turn.content,
+    status: turn.status,
+    createdAt: turn.createdAt,
+  }));
   const transcriptById = new Map(transcript.map((turn) => [Number(turn.id), turn]));
   return {
     id: evaluation.id,
