@@ -116,7 +116,7 @@ export function insightRoutes(db: AppDatabase): FastifyPluginAsync {
         .sort((a, b) => a.averageScore - b.averageScore);
       const levelDistribution = db.prepare('SELECT level,COUNT(*) AS count FROM evaluations GROUP BY level ORDER BY count DESC').all();
       const attemptSummary = db.prepare(`SELECT COUNT(*) AS totalAttempts,
-        SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed FROM sessions`).get() as { totalAttempts: number; completed: number };
+        SUM(CASE WHEN evaluation_status='completed' THEN 1 ELSE 0 END) AS completed FROM sessions`).get() as { totalAttempts: number; completed: number };
       const published = db.prepare("SELECT COUNT(*) AS count FROM cases WHERE status='published'").get() as { count: number };
       const scoreRows = db.prepare(`SELECT COALESCE((SELECT override_score FROM teacher_overrides o WHERE o.evaluation_id=e.id ORDER BY o.id DESC LIMIT 1),e.score) AS score
         FROM evaluations e ORDER BY score`).all() as Array<{ score: number }>;

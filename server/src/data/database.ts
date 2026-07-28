@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   case_version_id INTEGER NOT NULL REFERENCES case_versions(id),
   rubric_version_id INTEGER NOT NULL REFERENCES rubric_versions(id),
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','abandoned')),
+  evaluation_status TEXT NOT NULL DEFAULT 'not_started',
+  evaluation_error TEXT,
+  evaluation_started_at TEXT,
   started_at TEXT NOT NULL,
   completed_at TEXT,
   duration_seconds INTEGER
@@ -145,6 +148,19 @@ export function createDatabase(filename: string): AppDatabase {
   ensureColumn(db, 'cases', 'published_version', 'INTEGER');
   ensureColumn(db, 'rubrics', 'published_version', 'INTEGER');
   ensureColumn(db, 'turns', 'status', "TEXT NOT NULL DEFAULT 'completed'");
+  ensureColumn(db, 'sessions', 'evaluation_status', "TEXT NOT NULL DEFAULT 'not_started'");
+  ensureColumn(db, 'sessions', 'evaluation_error', 'TEXT');
+  ensureColumn(db, 'sessions', 'evaluation_started_at', 'TEXT');
+  db.prepare(`
+    UPDATE sessions
+    SET evaluation_status = 'completed'
+    WHERE evaluation_status = 'not_started'
+      AND EXISTS (
+        SELECT 1
+        FROM evaluations
+        WHERE evaluations.session_id = sessions.id
+      )
+  `).run();
   seedDatabase(db);
   return db;
 }

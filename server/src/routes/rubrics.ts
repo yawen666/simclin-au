@@ -11,8 +11,8 @@ const CriterionSchema = z.object({
   label: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  weight: z.coerce.number().min(0).max(100),
-  maxScore: z.coerce.number().positive().optional(),
+  weight: z.coerce.number().positive().max(100),
+  maxScore: z.coerce.number().int().refine((value) => value === 3, 'Criterion maxScore must be 3').default(3),
   critical: z.boolean().optional(),
   redFlagIds: z.array(z.string()).optional(),
 }).passthrough().transform((value, context) => {
@@ -23,13 +23,24 @@ const CriterionSchema = z.object({
   }
   return { ...value, label };
 });
-const RubricInput = z.object({
+const RubricInputBase = z.object({
   slug: z.string().min(2).max(100).regex(/^[a-z0-9-]+$/),
   name: z.string().min(2).max(160),
   description: z.string().max(1000).default(''),
   criteria: z.array(CriterionSchema).min(1),
 });
-const RubricPatch = RubricInput.partial().omit({ slug: true });
+const uniqueCriterionIds = (
+  value: { criteria?: Array<{ id: string }> },
+  context: z.RefinementCtx,
+) => {
+  if (!value.criteria) return;
+  const ids = value.criteria.map((criterion) => criterion.id);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: 'custom', path: ['criteria'], message: 'Criterion IDs must be unique' });
+  }
+};
+const RubricInput = RubricInputBase.superRefine(uniqueCriterionIds);
+const RubricPatch = RubricInputBase.partial().omit({ slug: true }).superRefine(uniqueCriterionIds);
 const Params = z.object({ id: z.coerce.number().int().positive() });
 
 function faculty(request: FastifyRequest) {

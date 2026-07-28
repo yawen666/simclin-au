@@ -16,6 +16,16 @@ async function token(role: 'student' | 'faculty') {
   return response.json().token as string;
 }
 
+async function waitForEvaluation(sessionId: number, headers: Record<string, string>) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const response = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}`, headers });
+    const result = response.json().result;
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`Evaluation for session ${sessionId} did not finish`);
+}
+
 beforeEach(async () => {
   db = createDatabase(':memory:');
   app = await buildApp({
@@ -126,8 +136,9 @@ describe('API integration', () => {
     expect(message.body).toContain('event: complete');
 
     const complete = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers: auth });
-    expect(complete.statusCode).toBe(200);
-    const result = complete.json().result;
+    expect(complete.statusCode).toBe(202);
+    expect(complete.json()).toMatchObject({ status: 'evaluating', sessionId: String(sessionId) });
+    const result = await waitForEvaluation(sessionId, auth);
     expect(result.score).toBeGreaterThan(0);
     expect(result.criteria.length).toBeGreaterThan(0);
     expect(result.criteria.every((criterion: { evidenceStatus: string }) => criterion.evidenceStatus === 'covered')).toBe(true);
@@ -151,7 +162,7 @@ describe('API integration', () => {
     expect((db.prepare('SELECT COUNT(*) AS count FROM model_runs').get() as { count: number }).count).toBe(3);
     expect((db.prepare('SELECT DISTINCT provider FROM model_runs').all() as Array<{ provider: string }>).map((row) => row.provider)).toEqual(['mock']);
     expect((db.prepare('SELECT purpose,prompt_version AS promptVersion FROM model_runs ORDER BY id').all() as Array<{ purpose: string; promptVersion: string }>).map((row) => `${row.purpose}:${row.promptVersion}`)).toEqual([
-      'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v2',
+      'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v3',
     ]);
   });
 

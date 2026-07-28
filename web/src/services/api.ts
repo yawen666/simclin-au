@@ -52,7 +52,14 @@ class ApiClient {
   async completeSession(id: string) {
     // Send an explicit empty JSON object so Fastify's JSON parser never sees
     // an empty request body with an application/json content type.
-    const data = (await this.http.post<{ resultId?: string; result?: { id: string }; session?: ClinicalSession }>(`/sessions/${id}/complete`, {}, { timeout: 120_000 })).data
+    const data = (await this.http.post<{
+      status: 'evaluating' | 'completed'
+      sessionId?: string
+      message?: string
+      resultId?: string
+      result?: { id: string }
+      session?: ClinicalSession
+    }>(`/sessions/${id}/complete`, {})).data
     return { ...data, resultId: data.resultId ?? String(data.result?.id ?? '') }
   }
 

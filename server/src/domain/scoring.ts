@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import type { RubricCriterion } from '../types.js';
+import { AppError } from '../lib/errors.js';
 
 const CriterionAssessmentSchema = z.object({
   criterion_id: z.string(),
-  score: z.coerce.number().min(0).max(3),
+  score: z.coerce.number().int().min(0).max(3),
   evidence_turn_ids: z.array(z.coerce.number().int().positive()).default([]),
   feedback: z.string().default(''),
 });
@@ -15,9 +16,15 @@ export const EvaluationSchema = z.object({
   strengths: z.array(z.string()).default([]),
   improvements: z.array(z.string()).default([]),
   overall_feedback: z.string().default(''),
+}).superRefine((value, context) => {
+  const ids = value.criteria.map((criterion) => criterion.criterion_id);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: 'custom', path: ['criteria'], message: 'Criterion IDs must be unique' });
+  }
 });
 
 export type ParsedEvaluation = z.infer<typeof EvaluationSchema>;
+export const SCORING_VERSION = 'history-weighted-v1';
 
 export interface ScoreResult {
   score: number;
@@ -31,7 +38,17 @@ export interface ScoreResult {
     evidenceTurnIds: number[];
     feedback: string;
   }>;
-  feedback: ParsedEvaluation & { score_cap_reason?: string };
+  feedback: ParsedEvaluation & {
+    score_cap_reason?: string;
+    scoring: {
+      version: typeof SCORING_VERSION;
+      formula: string;
+      roundingRule: string;
+      totalWeight: 100;
+      uncappedScore: number;
+      capApplied: number | null;
+    };
+  };
 }
 
 interface ScoreContext {
@@ -46,8 +63,8 @@ export function calculateScore(
   context: ScoreContext = {},
 ): ScoreResult {
   const evaluation = EvaluationSchema.parse(raw);
+  assertRubricScoringContract(rubric);
   const byId = new Map(evaluation.criteria.map((item) => [item.criterion_id, item]));
-  const totalWeight = rubric.reduce((sum, criterion) => sum + Math.max(0, criterion.weight), 0) || 100;
 
   const criteria = rubric.map((criterion) => {
     const item = byId.get(criterion.id);
@@ -57,13 +74,13 @@ export function calculateScore(
     return {
       criterionId: criterion.id,
       score,
-      weightedScore: (score / 3) * (Math.max(0, criterion.weight) / totalWeight) * 100,
+      weightedScore: Math.round(((score / 3) * criterion.weight) * 10_000) / 10_000,
       evidenceTurnIds,
       feedback: item?.feedback ?? '',
     };
   });
 
-  const uncappedScore = Math.round(criteria.reduce((sum, item) => sum + item.weightedScore, 0));
+  const uncappedScore = Math.round(criteria.reduce((sum, item) => sum + item.weightedScore, 0) * 100) / 100;
   // Only rubric-defined red flags may affect a deterministic score. This keeps
   // a model-invented identifier from creating a false safety cap.
   const allowedRedFlagIds = new Set(rubric.flatMap((criterion) => criterion.redFlagIds ?? []));
@@ -74,7 +91,7 @@ export function calculateScore(
     .filter((id) => !studentScreenedRedFlag(context.caseContent, context.transcript, id));
   const validatedMissedRedFlagReasons = Object.fromEntries(
     Object.entries(evaluation.missed_red_flag_reasons)
-      .filter(([id, reason]) => allowedRedFlagIds.has(id) && reason.trim().length > 0)
+      .filter(([id, reason]) => validatedMissedRedFlags.includes(id) && reason.trim().length > 0)
       .map(([id, reason]) => [id, reason.trim()]),
   );
   const missed = new Set(validatedMissedRedFlags);
@@ -82,7 +99,8 @@ export function calculateScore(
     criterion.critical && (criterion.redFlagIds ?? []).some((id) => missed.has(id)),
   );
   const capApplied = criticalMissed ? 59 : validatedMissedRedFlags.length > 0 ? 69 : null;
-  const score = capApplied == null ? uncappedScore : Math.min(uncappedScore, capApplied);
+  const roundedScore = Math.round(uncappedScore);
+  const score = capApplied == null ? roundedScore : Math.min(roundedScore, capApplied);
   const level = score >= 85 ? 'Excellent' : score >= 70 ? 'Competent' : score >= 50 ? 'Developing' : 'Needs improvement';
   return {
     score,
@@ -99,8 +117,34 @@ export function calculateScore(
           ? 'A critical red flag was not elicited.'
           : 'One or more safety red flags were not elicited.',
       }),
+      scoring: {
+        version: SCORING_VERSION,
+        formula: 'sum((domain score / 3) × domain weight)',
+        roundingRule: 'Final total rounded to the nearest whole point before any safety cap',
+        totalWeight: 100,
+        uncappedScore,
+        capApplied,
+      },
     },
   };
+}
+
+function assertRubricScoringContract(rubric: RubricCriterion[]): void {
+  if (!rubric.length) {
+    throw new AppError(500, 'INVALID_RUBRIC_CONFIGURATION', 'The assessment rubric has no criteria');
+  }
+  const ids = rubric.map((criterion) => criterion.id);
+  const totalWeight = rubric.reduce((sum, criterion) => sum + Number(criterion.weight), 0);
+  const invalidCriterion = rubric.some((criterion) =>
+    !criterion.id || !Number.isFinite(criterion.weight) || criterion.weight <= 0 || (criterion.maxScore ?? 3) !== 3,
+  );
+  if (invalidCriterion || new Set(ids).size !== ids.length || Math.abs(totalWeight - 100) > 0.001) {
+    throw new AppError(
+      500,
+      'INVALID_RUBRIC_CONFIGURATION',
+      'The assessment rubric must contain unique domains scored 0–3 with positive weights totalling exactly 100',
+    );
+  }
 }
 
 function studentScreenedRedFlag(

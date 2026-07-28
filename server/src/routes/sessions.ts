@@ -122,6 +122,9 @@ function serializeResult(db: AppDatabase, sessionId: number) {
   const rubric = parseJson<RubricCriterion[]>(String(evaluation.criteria_json), []);
   const rubricById = new Map(rubric.map((item) => [item.id, item]));
   const feedback = parseJson<Record<string, unknown>>(String(evaluation.feedback_json), {});
+  const scoring = feedback.scoring && typeof feedback.scoring === 'object'
+    ? feedback.scoring as Record<string, unknown>
+    : {};
   const content = parseJson<Record<string, unknown>>(String(evaluation.content_json), {});
   const redFlagLabels = redFlagLabelMap(content);
   const missedRedFlagIds = Array.isArray(feedback.missed_red_flags)
@@ -148,6 +151,13 @@ function serializeResult(db: AppDatabase, sessionId: number) {
     summary: feedback.overall_feedback ?? '',
     strengths: feedback.strengths ?? [],
     improvements: feedback.improvements ?? [],
+    scoringVersion: scoring.version ?? 'history-weighted-v1',
+    scoringFormula: scoring.formula ?? 'sum((domain score / 3) × domain weight)',
+    scoringRoundingRule: scoring.roundingRule ?? 'Final total rounded to the nearest whole point before any safety cap',
+    totalWeight: Number(scoring.totalWeight ?? 100),
+    uncappedScore: Number(scoring.uncappedScore ?? evaluation.score),
+    capApplied: scoring.capApplied == null ? null : Number(scoring.capApplied),
+    scoreCapReason: feedback.score_cap_reason ?? null,
     missedRedFlagIds,
     missedRedFlags: missedRedFlagIds.map((id) => redFlagLabels.get(id) ?? id),
     missedRedFlagReasons: parseJson<Record<string, string>>(JSON.stringify(feedback.missed_red_flag_reasons ?? {}), {}),
@@ -160,8 +170,9 @@ function serializeResult(db: AppDatabase, sessionId: number) {
         name: definition?.label ?? item.criterionId,
         score: numericScore,
         maxScore: 3,
+        weight: Number(definition?.weight ?? 0),
         level: numericScore >= 2.5 ? 'Excellent' : numericScore >= 2 ? 'Competent' : numericScore >= 1 ? 'Developing' : 'Needs improvement',
-        weightedScore: item.weightedScore,
+        weightedScore: Number(item.weightedScore),
         evidenceTurnIds,
         evidenceStatus: evidenceStatus(definition, evidenceTurnIds, transcript, content),
         evidence: evidenceTurnIds.flatMap((turnId) => {
@@ -197,6 +208,72 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
     const activeMessageSessions = new Set<number>();
     const activeEvaluations = new Set<number>();
 
+    const runEvaluation = async (id: number) => {
+      const existing = serializeResult(db, id);
+      if (existing) {
+        db.prepare("UPDATE sessions SET evaluation_status='completed',evaluation_error=NULL WHERE id=?").run(id);
+        return;
+      }
+      const session = getSession(db, id, 0, 'faculty');
+      db.prepare("UPDATE sessions SET evaluation_status='running',evaluation_error=NULL,evaluation_started_at=? WHERE id=?")
+        .run(nowIso(), id);
+      const transcript = getTurns(db, id).filter((turn) => turn.status !== 'failed' && turn.status !== 'pending');
+      const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
+      const criteria = parseJson<RubricCriterion[]>(String(session.criteria_json), []);
+      const started = Date.now();
+      let evaluated;
+      try {
+        evaluated = await provider.evaluate({ sessionId: id, caseContent: content, transcript, criteria });
+      } catch (error) {
+        recordModelRun(db, {
+          provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'evaluator', sessionId: id,
+          promptVersion: PROMPT_VERSIONS.evaluator, latencyMs: Date.now() - started, status: 'error',
+          errorCode: error instanceof AppError ? error.code : 'UNKNOWN',
+        });
+        db.prepare("UPDATE sessions SET evaluation_status='failed',evaluation_error=? WHERE id=?")
+          .run('Feedback generation failed. Please retry from practice history.', id);
+        app.log.error({ err: error, sessionId: id }, 'Background evaluation failed');
+        return;
+      }
+
+      const modelRunId = recordModelRun(db, {
+        provider: evaluated.meta.provider ?? providerName, model: evaluated.meta.model, purpose: 'evaluator', sessionId: id,
+        promptVersion: evaluated.meta.promptVersion ?? PROMPT_VERSIONS.evaluator, latencyMs: evaluated.meta.latencyMs,
+        inputTokens: evaluated.meta.inputTokens, outputTokens: evaluated.meta.outputTokens, status: 'success',
+      });
+      try {
+        const validStudentTurns = new Set(transcript.filter((turn) => turn.speaker === 'student').map((turn) => turn.id));
+        const scoring = calculateScore(evaluated.value, criteria, validStudentTurns, { caseContent: content, transcript });
+        const evaluatedAt = nowIso();
+        db.transaction(() => {
+          const evalResult = db.prepare(`INSERT INTO evaluations
+            (session_id,model_run_id,score,level,feedback_json,raw_json,created_at) VALUES (?,?,?,?,?,?,?)`)
+            .run(id, modelRunId, scoring.score, scoring.level, JSON.stringify(scoring.feedback), JSON.stringify(evaluated.value), evaluatedAt);
+          const evaluationId = Number(evalResult.lastInsertRowid);
+          const insertCriterion = db.prepare(`INSERT INTO criterion_scores
+            (evaluation_id,criterion_id,score,weighted_score,evidence_turn_ids_json,feedback) VALUES (?,?,?,?,?,?)`);
+          for (const item of scoring.criteria) insertCriterion.run(
+            evaluationId, item.criterionId, item.score, item.weightedScore, JSON.stringify(item.evidenceTurnIds), item.feedback,
+          );
+          db.prepare("UPDATE sessions SET evaluation_status='completed',evaluation_error=NULL WHERE id=?").run(id);
+        })();
+      } catch (error) {
+        db.prepare("UPDATE model_runs SET status='error',error_code='AI_OUTPUT_VALIDATION' WHERE id=?")
+          .run(modelRunId);
+        db.prepare("UPDATE sessions SET evaluation_status='failed',evaluation_error=? WHERE id=?")
+          .run('The assessment response could not be validated. Please retry from practice history.', id);
+        app.log.error({ err: error, sessionId: id }, 'Background scoring failed');
+      }
+    };
+
+    const queueEvaluation = (id: number) => {
+      if (activeEvaluations.has(id)) return;
+      activeEvaluations.add(id);
+      setImmediate(() => {
+        void runEvaluation(id).finally(() => activeEvaluations.delete(id));
+      });
+    };
+
     app.post('/', async (request, reply) => {
       if (request.user.role !== 'student') throw new AppError(403, 'FORBIDDEN', 'Student access is required');
       const { caseId } = StartSchema.parse(request.body);
@@ -221,16 +298,30 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       reply.code(201);
       const opening = openingStatement(content);
       const firstTurn = db.prepare('SELECT id,sequence,speaker,content,created_at AS createdAt FROM turns WHERE session_id=?').get(id) as Record<string, unknown>;
-      const session = { id, caseId, status: 'active', startedAt: now, turns: [{ ...firstTurn, role: firstTurn.speaker }], openingStatement: opening };
+      const session = {
+        id, caseId, status: 'active', evaluationStatus: 'not_started', startedAt: now,
+        turns: [{ ...firstTurn, role: firstTurn.speaker }], openingStatement: opening,
+      };
       return { ...session, session, openingStatement: opening };
     });
 
     app.get('/', async (request) => {
-      const rows = db.prepare(`SELECT s.id,s.case_id AS caseId,c.title AS caseTitle,s.status,s.started_at AS startedAt,
-        s.completed_at AS completedAt,s.duration_seconds AS durationSeconds,e.id AS resultId,
+      const rows = db.prepare(`SELECT s.id,s.case_id AS caseId,c.title AS caseTitle,
+        CASE
+          WHEN s.evaluation_status IN ('queued','running') THEN 'evaluating'
+          WHEN s.evaluation_status='failed' THEN 'evaluation_failed'
+          ELSE s.status
+        END AS status,
+        s.evaluation_status AS evaluationStatus,s.evaluation_error AS evaluationError,
+        s.started_at AS startedAt,s.completed_at AS completedAt,s.duration_seconds AS durationSeconds,e.id AS resultId,
         COALESCE((SELECT override_score FROM teacher_overrides o WHERE o.evaluation_id=e.id ORDER BY o.id DESC LIMIT 1),e.score) AS score
         FROM sessions s JOIN cases c ON c.id=s.case_id LEFT JOIN evaluations e ON e.session_id=s.id
-        WHERE s.user_id=? ORDER BY s.started_at DESC`).all(request.user.sub);
+        WHERE s.user_id=? ORDER BY s.started_at DESC`).all(request.user.sub) as Array<Record<string, unknown>>;
+      for (const row of rows) {
+        if (row.resultId == null && (row.evaluationStatus === 'queued' || row.evaluationStatus === 'running')) {
+          queueEvaluation(Number(row.id));
+        }
+      }
       return { sessions: rows, items: rows };
     });
 
@@ -238,9 +329,18 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       const { id } = Params.parse(request.params);
       const session = getSession(db, id, request.user.sub, request.user.role);
       const turns = getTurns(db, id).map((turn) => ({ ...turn, role: turn.speaker }));
+      if (!serializeResult(db, id) && (session.evaluation_status === 'queued' || session.evaluation_status === 'running')) {
+        queueEvaluation(id);
+      }
+      const status = session.evaluation_status === 'failed'
+        ? 'evaluation_failed'
+        : session.evaluation_status === 'queued' || session.evaluation_status === 'running'
+          ? 'evaluating'
+          : session.status;
       const detail = {
           id, caseId: session.case_id, caseTitle: session.title, specialty: session.specialty,
-          status: session.status, startedAt: session.started_at, completedAt: session.completed_at,
+          status, evaluationStatus: session.evaluation_status, evaluationError: session.evaluation_error,
+          startedAt: session.started_at, completedAt: session.completed_at,
           turns, result: serializeResult(db, id),
       };
       return { ...detail, session: detail };
@@ -372,63 +472,34 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
     app.post('/:id/messages', streamMessage);
     app.post('/:id/messages/stream', streamMessage);
 
-    app.post('/:id/complete', async (request) => {
+    app.post('/:id/complete', async (request, reply) => {
       if (request.user.role !== 'student') throw new AppError(403, 'FORBIDDEN', 'Student access is required');
       const { id } = Params.parse(request.params);
       const session = getSession(db, id, request.user.sub, request.user.role);
-      if (session.status !== 'active') {
-        const prior = serializeResult(db, id);
-        if (prior) return { resultId: String(prior.id), result: prior };
-        throw new AppError(409, 'SESSION_NOT_ACTIVE', 'This session is no longer active');
-      }
+      const prior = serializeResult(db, id);
+      if (prior) return { status: 'completed', resultId: String(prior.id), result: prior };
+      if (session.status === 'abandoned') throw new AppError(409, 'SESSION_NOT_ACTIVE', 'This session is no longer active');
       if (activeMessageSessions.has(id)) throw new AppError(409, 'SESSION_BUSY', 'Please wait for the simulated patient to finish responding');
-      if (activeEvaluations.has(id)) throw new AppError(409, 'EVALUATION_BUSY', 'This consultation is already being evaluated');
-      activeEvaluations.add(id);
       const transcript = getTurns(db, id).filter((turn) => turn.status !== 'failed' && turn.status !== 'pending');
       if (!transcript.some((turn) => turn.speaker === 'student')) {
-        activeEvaluations.delete(id);
         throw new AppError(400, 'EMPTY_SESSION', 'Ask the patient at least one question before ending the consultation');
       }
-      const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
-      const criteria = parseJson<RubricCriterion[]>(String(session.criteria_json), []);
-      let evaluated;
-      const started = Date.now();
-      try {
-        evaluated = await provider.evaluate({ sessionId: id, caseContent: content, transcript, criteria });
-      } catch (error) {
-        recordModelRun(db, {
-          provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'evaluator', sessionId: id,
-          promptVersion: PROMPT_VERSIONS.evaluator, latencyMs: Date.now() - started, status: 'error',
-          errorCode: error instanceof AppError ? error.code : 'UNKNOWN',
-        });
-        activeEvaluations.delete(id);
-        throw error;
-      }
-      const modelRunId = recordModelRun(db, {
-        provider: evaluated.meta.provider ?? providerName, model: evaluated.meta.model, purpose: 'evaluator', sessionId: id,
-        promptVersion: evaluated.meta.promptVersion ?? PROMPT_VERSIONS.evaluator, latencyMs: evaluated.meta.latencyMs,
-        inputTokens: evaluated.meta.inputTokens, outputTokens: evaluated.meta.outputTokens, status: 'success',
-      });
-      const validStudentTurns = new Set(transcript.filter((turn) => turn.speaker === 'student').map((turn) => turn.id));
-      const scoring = calculateScore(evaluated.value, criteria, validStudentTurns, { caseContent: content, transcript });
-      const completedAt = nowIso();
-      const durationSeconds = Math.max(0, Math.round((Date.parse(completedAt) - Date.parse(String(session.started_at))) / 1000));
-      db.transaction(() => {
-        db.prepare("UPDATE sessions SET status='completed',completed_at=?,duration_seconds=? WHERE id=?")
+      if (session.status === 'active') {
+        const completedAt = nowIso();
+        const durationSeconds = Math.max(0, Math.round((Date.parse(completedAt) - Date.parse(String(session.started_at))) / 1000));
+        db.prepare(`UPDATE sessions SET status='completed',completed_at=?,duration_seconds=?,
+          evaluation_status='queued',evaluation_error=NULL WHERE id=?`)
           .run(completedAt, durationSeconds, id);
-        const evalResult = db.prepare(`INSERT INTO evaluations
-          (session_id,model_run_id,score,level,feedback_json,raw_json,created_at) VALUES (?,?,?,?,?,?,?)`)
-          .run(id, modelRunId, scoring.score, scoring.level, JSON.stringify(scoring.feedback), JSON.stringify(evaluated.value), completedAt);
-        const evaluationId = Number(evalResult.lastInsertRowid);
-        const insertCriterion = db.prepare(`INSERT INTO criterion_scores
-          (evaluation_id,criterion_id,score,weighted_score,evidence_turn_ids_json,feedback) VALUES (?,?,?,?,?,?)`);
-        for (const item of scoring.criteria) insertCriterion.run(
-          evaluationId, item.criterionId, item.score, item.weightedScore, JSON.stringify(item.evidenceTurnIds), item.feedback,
-        );
-      })();
-      activeEvaluations.delete(id);
-      const result = assertFound(serializeResult(db, id), 'Result');
-      return { resultId: String(result.id), result };
+      } else if (session.evaluation_status === 'failed' || session.evaluation_status === 'not_started') {
+        db.prepare("UPDATE sessions SET evaluation_status='queued',evaluation_error=NULL WHERE id=?").run(id);
+      }
+      queueEvaluation(id);
+      reply.code(202);
+      return {
+        status: 'evaluating',
+        sessionId: String(id),
+        message: 'Feedback generation has started. You can review it from practice history when it is ready.',
+      };
     });
 
     app.get('/:id/result', async (request) => {

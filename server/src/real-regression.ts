@@ -28,6 +28,17 @@ const config = loadConfig({ DATABASE_PATH: ':memory:', AI_PROVIDER: 'deepseek', 
 if (!config.DEEPSEEK_API_KEY) throw new Error('DEEPSEEK_API_KEY is required for the real-provider regression');
 const app = await buildApp({ config, logger: true });
 
+async function waitForEvaluation(sessionId: number, headers: Record<string, string>) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const response = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}`, headers });
+    const result = response.json().result as { score: number; criteria: unknown[] } | null;
+    if (result) return result;
+    if (response.json().evaluationStatus === 'failed') throw new Error('Evaluator reported a failed status');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error('Evaluator did not finish within 120 seconds');
+}
+
 try {
   const auth = await app.inject({ method: 'POST', url: '/api/auth/demo', payload: { role: 'student' } });
   if (auth.statusCode !== 200) throw new Error(`Demo auth failed: HTTP ${auth.statusCode}`);
@@ -60,8 +71,8 @@ try {
     }
 
     const complete = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers });
-    if (complete.statusCode !== 200) throw new Error(`${clinicalCase.slug}: evaluator failed (HTTP ${complete.statusCode})`);
-    const result = complete.json().result as { score: number; criteria: unknown[] };
+    if (complete.statusCode !== 202) throw new Error(`${clinicalCase.slug}: evaluator queue failed (HTTP ${complete.statusCode})`);
+    const result = await waitForEvaluation(sessionId, headers);
     if (!Number.isFinite(result.score) || result.score < 0 || result.score > 100 || result.criteria.length !== 7) {
       throw new Error(`${clinicalCase.slug}: evaluator returned an invalid structured score`);
     }

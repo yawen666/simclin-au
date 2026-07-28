@@ -52,4 +52,48 @@ describe('deterministic scoring', () => {
     expect(result.score).toBe(100);
     expect(result.feedback.missed_red_flags).toEqual([]);
   });
+
+  it('rejects a rubric whose weights do not total exactly 100', () => {
+    expect(() => calculateScore({
+      criteria: [
+        { criterion_id: 'communication', score: 3, evidence_turn_ids: [10], feedback: 'Clear' },
+        { criterion_id: 'red-flags', score: 3, evidence_turn_ids: [10], feedback: 'Safe' },
+      ],
+      missed_red_flags: [], strengths: [], improvements: [], overall_feedback: '',
+    }, [
+      { id: 'communication', label: 'Communication', weight: 40 },
+      { id: 'red-flags', label: 'Red flags', weight: 50 },
+    ], new Set([10]))).toThrowError(/weights totalling exactly 100/);
+  });
+
+  it('rejects fractional anchored scores and duplicate criterion assessments', () => {
+    expect(() => calculateScore({
+      criteria: [
+        { criterion_id: 'communication', score: 2.5, evidence_turn_ids: [10], feedback: 'Fractional' },
+        { criterion_id: 'red-flags', score: 3, evidence_turn_ids: [10], feedback: 'Safe' },
+      ],
+      missed_red_flags: [], strengths: [], improvements: [], overall_feedback: '',
+    }, rubric, new Set([10]))).toThrow();
+    expect(() => calculateScore({
+      criteria: [
+        { criterion_id: 'communication', score: 2, evidence_turn_ids: [10], feedback: 'First' },
+        { criterion_id: 'communication', score: 3, evidence_turn_ids: [10], feedback: 'Duplicate' },
+      ],
+      missed_red_flags: [], strengths: [], improvements: [], overall_feedback: '',
+    }, rubric, new Set([10]))).toThrowError(/Criterion IDs must be unique/);
+  });
+
+  it('preserves the auditable weighted total before rounding the final score', () => {
+    const result = calculateScore({
+      criteria: [
+        { criterion_id: 'communication', score: 1, evidence_turn_ids: [10], feedback: 'Partial' },
+        { criterion_id: 'red-flags', score: 0, evidence_turn_ids: [], feedback: 'Not covered' },
+      ],
+      missed_red_flags: [], strengths: [], improvements: [], overall_feedback: '',
+    }, rubric, new Set([10]));
+    expect(result.criteria[0]?.weightedScore).toBeCloseTo(13.3333);
+    expect(result.uncappedScore).toBe(13.33);
+    expect(result.score).toBe(13);
+    expect(result.feedback.scoring.roundingRule).toMatch(/nearest whole point/);
+  });
 });

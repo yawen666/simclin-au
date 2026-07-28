@@ -66,7 +66,9 @@ export interface ClinicalSession {
   id: string
   caseId: string
   caseTitle: string
-  status: 'active' | 'evaluating' | 'completed'
+  status: 'active' | 'evaluating' | 'evaluation_failed' | 'completed'
+  evaluationStatus?: 'not_started' | 'queued' | 'running' | 'completed' | 'failed'
+  evaluationError?: string | null
   startedAt: string
   completedAt?: string
   durationSeconds?: number
@@ -80,6 +82,8 @@ export interface CriterionResult {
   name: string
   score: number
   maxScore: number
+  weight: number
+  weightedScore: number
   level: string
   feedback: string
   evidenceStatus?: 'covered' | 'asked_no_credit' | 'not_asked'
@@ -97,6 +101,13 @@ export interface EvaluationResult {
   summary: string
   strengths: string[]
   improvements: string[]
+  scoringVersion?: string
+  scoringFormula?: string
+  scoringRoundingRule?: string
+  totalWeight?: number
+  uncappedScore?: number
+  capApplied?: number | null
+  scoreCapReason?: string | null
   missedRedFlagIds?: string[]
   missedRedFlags: string[]
   missedRedFlagReasons?: Record<string, string>
