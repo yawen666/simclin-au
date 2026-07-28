@@ -6,6 +6,7 @@ import { loadConfig } from './config.js';
 import { createDatabase } from './data/database.js';
 import { MockAiProvider } from './ai/provider.js';
 import { redFlagLabelMap } from './routes/sessions.js';
+import { AppError } from './lib/errors.js';
 
 let app: FastifyInstance;
 let db: Database.Database;
@@ -164,6 +165,46 @@ describe('API integration', () => {
     expect((db.prepare('SELECT purpose,prompt_version AS promptVersion FROM model_runs ORDER BY id').all() as Array<{ purpose: string; promptVersion: string }>).map((row) => `${row.purpose}:${row.promptVersion}`)).toEqual([
       'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v3',
     ]);
+  });
+
+  it('automatically retries one transient evaluator failure and audits both attempts', async () => {
+    await app.close();
+    db.close();
+    let evaluatorAttempts = 0;
+    class FlakyEvaluatorProvider extends MockAiProvider {
+      override async evaluate(input: Parameters<MockAiProvider['evaluate']>[0]) {
+        evaluatorAttempts += 1;
+        if (evaluatorAttempts === 1) throw new AppError(504, 'AI_TIMEOUT', 'Synthetic transient timeout');
+        return super.evaluate(input);
+      }
+    }
+    db = createDatabase(':memory:');
+    app = await buildApp({
+      db,
+      aiProvider: new FlakyEvaluatorProvider(),
+      logger: false,
+      config: loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', JWT_SECRET: 'unit-test-secret-at-least-32-characters', AI_PROVIDER: 'mock' }),
+    });
+    await app.ready();
+    const student = await token('student');
+    const headers = { authorization: `Bearer ${student}` };
+    const cases = await app.inject({ method: 'GET', url: '/api/cases', headers });
+    const started = await app.inject({ method: 'POST', url: '/api/sessions', headers, payload: { caseId: cases.json().cases[0].id } });
+    const sessionId = started.json().session.id as number;
+    await app.inject({
+      method: 'POST', url: `/api/sessions/${sessionId}/messages`, headers,
+      payload: { message: 'When did the chest discomfort start?' },
+    });
+    const queued = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers });
+    expect(queued.statusCode).toBe(202);
+    const result = await waitForEvaluation(sessionId, headers);
+    expect(result).toBeTruthy();
+    expect(evaluatorAttempts).toBe(2);
+    expect(db.prepare("SELECT status,error_code AS errorCode FROM model_runs WHERE purpose='evaluator' ORDER BY id").all())
+      .toEqual([
+        { status: 'error', errorCode: 'AI_TIMEOUT' },
+        { status: 'success', errorCode: null },
+      ]);
   });
 
   it('marks failed turns and prevents runaway question counts', async () => {

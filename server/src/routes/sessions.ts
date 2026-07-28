@@ -221,24 +221,34 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
       const criteria = parseJson<RubricCriterion[]>(String(session.criteria_json), []);
       const started = Date.now();
-      let evaluated;
-      try {
-        evaluated = await provider.evaluate({ sessionId: id, caseContent: content, transcript, criteria });
-      } catch (error) {
-        recordModelRun(db, {
-          provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'evaluator', sessionId: id,
-          promptVersion: PROMPT_VERSIONS.evaluator, latencyMs: Date.now() - started, status: 'error',
-          errorCode: error instanceof AppError ? error.code : 'UNKNOWN',
-        });
-        db.prepare("UPDATE sessions SET evaluation_status='failed',evaluation_error=? WHERE id=?")
-          .run('Feedback generation failed. Please retry from practice history.', id);
-        app.log.error({ err: error, sessionId: id }, 'Background evaluation failed');
-        return;
+      let evaluated: Awaited<ReturnType<AiProvider['evaluate']>> | undefined;
+      for (let attempt = 1; attempt <= 2 && !evaluated; attempt += 1) {
+        const attemptStarted = Date.now();
+        try {
+          evaluated = await provider.evaluate({ sessionId: id, caseContent: content, transcript, criteria });
+        } catch (error) {
+          const errorCode = error instanceof AppError ? error.code : 'UNKNOWN';
+          recordModelRun(db, {
+            provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'evaluator', sessionId: id,
+            promptVersion: PROMPT_VERSIONS.evaluator, latencyMs: Date.now() - attemptStarted, status: 'error',
+            errorCode, metadata: { attempt },
+          });
+          const retryable = ['AI_TIMEOUT', 'AI_NETWORK_ERROR', 'AI_PROVIDER_ERROR', 'AI_EMPTY_RESPONSE'].includes(errorCode);
+          if (attempt < 2 && retryable) {
+            app.log.warn({ err: error, sessionId: id, attempt }, 'Background evaluation attempt failed; retrying');
+            continue;
+          }
+          db.prepare("UPDATE sessions SET evaluation_status='failed',evaluation_error=? WHERE id=?")
+            .run('Feedback generation failed. Please retry from practice history.', id);
+          app.log.error({ err: error, sessionId: id, attempt }, 'Background evaluation failed');
+          return;
+        }
       }
+      if (!evaluated) return;
 
       const modelRunId = recordModelRun(db, {
         provider: evaluated.meta.provider ?? providerName, model: evaluated.meta.model, purpose: 'evaluator', sessionId: id,
-        promptVersion: evaluated.meta.promptVersion ?? PROMPT_VERSIONS.evaluator, latencyMs: evaluated.meta.latencyMs,
+        promptVersion: evaluated.meta.promptVersion ?? PROMPT_VERSIONS.evaluator, latencyMs: Date.now() - started,
         inputTokens: evaluated.meta.inputTokens, outputTokens: evaluated.meta.outputTokens, status: 'success',
       });
       try {

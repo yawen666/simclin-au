@@ -245,7 +245,10 @@ export class DeepSeekProvider implements AiProvider {
           transcript: input.transcript,
         }),
       },
-    ], { json: true, thinking: 'enabled', reasoningEffort: 'high', promptVersion: PROMPT_VERSIONS.evaluator, timeoutMs: 90_000 });
+    // The evaluator is constrained to a small, validated JSON contract.
+    // Disabling extended reasoning keeps background reports responsive while
+    // deterministic scoring and evidence validation remain server-side.
+    ], { json: true, thinking: 'disabled', promptVersion: PROMPT_VERSIONS.evaluator, timeoutMs: 90_000 });
     return { value: extractJson(result.content), meta: result.meta };
   }
 }
