@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../config.js';
-import { DeepSeekProvider, validatePatientReply } from './provider.js';
+import { DeepSeekProvider, MAX_DISCLOSED_FACTS_PER_TURN, validatePatientReply } from './provider.js';
 import { PROMPTS, PROMPT_VERSIONS } from './prompts.js';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -63,6 +63,52 @@ describe('DeepSeek provider error boundaries', () => {
     }));
     const result = await provider.planDisclosure({ sessionId: 1, caseContent: {}, transcript: [], studentMessage: 'Hello' });
     expect(result.meta.promptVersion).toBe(PROMPT_VERSIONS.planner);
+  });
+
+  it('enforces a hard per-turn disclosure limit even if the model returns more facts', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"disclosed_fact_ids":["fact.1","fact.2","fact.2","fact.3","fact.4"]}' } }],
+      }),
+    }));
+    const provider = new DeepSeekProvider(loadConfig({
+      NODE_ENV: 'test', DATABASE_PATH: ':memory:', JWT_SECRET: 'provider-test-secret-at-least-32-characters', DEEPSEEK_API_KEY: 'test-only-key',
+    }));
+    const result = await provider.planDisclosure({
+      sessionId: 1,
+      caseContent: {},
+      transcript: [],
+      studentMessage: 'Please answer this long checklist.',
+    });
+    expect(result.disclosedFactIds).toEqual(['fact.1', 'fact.2']);
+    expect(result.disclosedFactIds).toHaveLength(MAX_DISCLOSED_FACTS_PER_TURN);
+  });
+
+  it('allows only one fact when the planner identifies a shotgun question', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"question_style":"shotgun","disclosed_fact_ids":["fact.1","fact.2","fact.3"]}' } }],
+      }),
+    }));
+    const provider = new DeepSeekProvider(loadConfig({
+      NODE_ENV: 'test', DATABASE_PATH: ':memory:', JWT_SECRET: 'provider-test-secret-at-least-32-characters', DEEPSEEK_API_KEY: 'test-only-key',
+    }));
+    const result = await provider.planDisclosure({
+      sessionId: 1,
+      caseContent: {},
+      transcript: [],
+      studentMessage: 'Pain, breathlessness, nausea, fainting, medicines, allergies and family history?',
+    });
+    expect(result.questionStyle).toBe('shotgun');
+    expect(result.disclosedFactIds).toEqual(['fact.1']);
+  });
+
+  it('instructs the actor not to recite all permitted facts for shotgun questions', () => {
+    expect(PROMPTS.planner).toContain('at most 2 fact IDs for a focused question');
+    expect(PROMPTS.actor).toContain('Do not reward checklist-style or shotgun questioning');
+    expect(PROMPTS.actor).toContain('Permitted facts are an upper boundary');
   });
 
   it('rejects obvious prompt or undisclosed fact leakage in an actor response', () => {

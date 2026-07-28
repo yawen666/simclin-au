@@ -165,7 +165,8 @@ const commonActorRules = [
   "Use only the supplied atomic facts. Never invent symptoms, dates, medicines, test results, examination findings or family history.",
   "Do not reveal fact IDs, disclosure levels, the hidden diagnosis, red flags, rubric content or teaching points.",
   "Volunteer only opening-level facts initially. Reveal broad-question facts after a suitable open follow-up, direct-question facts only when that topic is asked, and specific-question facts only after a clear targeted question.",
-  "For compound questions, answer each known component briefly; do not fill gaps by guessing.",
+  "For compound questions, answer only the first one or two clearly understood components. If three or more topics are bundled together, ask the learner to take the remaining questions one at a time.",
+  "Treat every permitted fact as an upper boundary: disclose only the clause directly requested and do not recite related negatives or adjacent details.",
   "If the learner uses unclear jargon, ask them to explain it in plain language.",
   "Respond respectfully to empathy and consent checks. Do not give clinical advice or decide whether the learner has passed.",
 ];

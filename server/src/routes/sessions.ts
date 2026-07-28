@@ -336,7 +336,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       try {
         for await (const chunk of provider.streamPatientReply({
           sessionId: id, caseContent: content, transcript, studentMessage: message,
-          disclosedFactIds: validDisclosedFactIds, permittedFacts,
+          disclosedFactIds: validDisclosedFactIds, permittedFacts, questionStyle: planner.questionStyle,
         })) {
           patientReply += chunk;
           send('delta', { type: 'delta', text: chunk, delta: chunk });

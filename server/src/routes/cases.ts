@@ -225,7 +225,7 @@ export function caseRoutes(db: AppDatabase, provider?: AiProvider): FastifyPlugi
       let text = '';
       for await (const chunk of provider.streamPatientReply({
         sessionId: 0, caseContent: content, transcript, studentMessage: message,
-        disclosedFactIds: permittedFactIds, permittedFacts,
+        disclosedFactIds: permittedFactIds, permittedFacts, questionStyle: planner.questionStyle,
       })) text += chunk;
       if (!text.trim()) throw new AppError(502, 'AI_EMPTY_RESPONSE', 'Patient actor returned an empty response');
       validatePatientReply(text.trim(), content, permittedFactIds);

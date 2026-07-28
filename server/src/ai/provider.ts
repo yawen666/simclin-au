@@ -23,6 +23,7 @@ export interface PlannerInput {
 export interface ActorInput extends PlannerInput {
   disclosedFactIds: string[];
   permittedFacts: unknown;
+  questionStyle?: 'broad' | 'focused' | 'shotgun';
 }
 
 export interface EvaluationInput {
@@ -43,6 +44,7 @@ export interface ModelMeta {
 
 export interface PlannerResult {
   disclosedFactIds: string[];
+  questionStyle: 'broad' | 'focused' | 'shotgun';
   rationale?: string;
   meta: ModelMeta;
 }
@@ -59,9 +61,11 @@ export interface AiProvider {
 }
 
 const PlannerSchema = z.object({
+  question_style: z.enum(['broad', 'focused', 'shotgun']).optional().default('focused'),
   disclosed_fact_ids: z.array(z.string()).max(30),
   rationale: z.string().optional(),
 });
+export const MAX_DISCLOSED_FACTS_PER_TURN = 2;
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -148,7 +152,9 @@ export class DeepSeekProvider implements AiProvider {
       },
     ], { json: true, thinking: 'disabled', promptVersion: PROMPT_VERSIONS.planner });
     const parsed = PlannerSchema.parse(extractJson(result.content));
-    return { disclosedFactIds: parsed.disclosed_fact_ids, rationale: parsed.rationale, meta: result.meta };
+    const disclosureLimit = parsed.question_style === 'focused' ? MAX_DISCLOSED_FACTS_PER_TURN : 1;
+    const disclosedFactIds = [...new Set(parsed.disclosed_fact_ids)].slice(0, disclosureLimit);
+    return { disclosedFactIds, questionStyle: parsed.question_style, rationale: parsed.rationale, meta: result.meta };
   }
 
   async *streamPatientReply(input: ActorInput): AsyncIterable<string> {
@@ -167,6 +173,7 @@ export class DeepSeekProvider implements AiProvider {
           model: this.config.DEEPSEEK_MODEL,
           stream: true,
           temperature: 0.4,
+          max_tokens: 120,
           thinking: { type: 'disabled' },
           messages: [
             {
@@ -179,6 +186,7 @@ export class DeepSeekProvider implements AiProvider {
                 patient_profile: safePatientProfile(input.caseContent),
                 permitted_fact_ids: input.disclosedFactIds,
                 permitted_facts: input.permittedFacts,
+                question_style: input.questionStyle ?? 'focused',
                 transcript: input.transcript,
                 latest_student_message: input.studentMessage,
               }),
@@ -248,6 +256,7 @@ export class MockAiProvider implements AiProvider {
     const facts = collectAllFactIds(input.caseContent);
     return {
       disclosedFactIds: facts.slice(0, 2),
+      questionStyle: 'focused',
       rationale: 'Deterministic test disclosure',
       meta: { provider: 'mock', model: 'simclin-mock-v1', promptVersion: PROMPT_VERSIONS.planner, latencyMs: 1, inputTokens: 1, outputTokens: 1 },
     };

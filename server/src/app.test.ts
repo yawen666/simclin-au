@@ -151,7 +151,7 @@ describe('API integration', () => {
     expect((db.prepare('SELECT COUNT(*) AS count FROM model_runs').get() as { count: number }).count).toBe(3);
     expect((db.prepare('SELECT DISTINCT provider FROM model_runs').all() as Array<{ provider: string }>).map((row) => row.provider)).toEqual(['mock']);
     expect((db.prepare('SELECT purpose,prompt_version AS promptVersion FROM model_runs ORDER BY id').all() as Array<{ purpose: string; promptVersion: string }>).map((row) => `${row.purpose}:${row.promptVersion}`)).toEqual([
-      'disclosure-planner:planner-v2', 'patient-actor:actor-v2', 'evaluator:evaluator-v2',
+      'disclosure-planner:planner-v3', 'patient-actor:actor-v3', 'evaluator:evaluator-v2',
     ]);
   });
 
