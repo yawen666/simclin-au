@@ -38,7 +38,7 @@ The API is available at `http://127.0.0.1:4100`; its health endpoint is `/api/he
 | `DATABASE_PATH` | SQLite file; relative paths resolve from `server/` | `./data/simclin-au.db` |
 | `JWT_SECRET` | Signs the browser-scoped student and faculty JWTs | development-only default |
 | `FACULTY_DEMO_ACCESS_CODE` | Server-only shared code used when open demo access is disabled | unset |
-| `FACULTY_DEMO_OPEN_ACCESS` | Allows one-click public faculty preview without a browser secret | `true` in development; `false` otherwise |
+| `FACULTY_DEMO_OPEN_ACCESS` | Allows one-click public faculty preview without a browser secret | `true` for the demo app; automated tests set their mode explicitly |
 | `AI_PROVIDER` | `deepseek` or explicit test-only `mock` | `deepseek` |
 | `AI_REQUESTS_PER_HOUR` | Per-authenticated-user ceiling for patient, evaluator and preview workflow requests | `60` |
 | `AI_REQUESTS_PER_IP_PER_HOUR` | Shared ceiling across users from one client IP; must be at least the user ceiling | `180` |

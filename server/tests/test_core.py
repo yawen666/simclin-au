@@ -174,7 +174,6 @@ def test_environment_precedence_and_production_ai_configuration(monkeypatch: pyt
             "jwt_secret": "production-secret-at-least-32-characters",
             "web_origin": "https://simclin.example",
             "faculty_demo_access_code": "",
-            "faculty_demo_open_access": True,
             "ai_provider": "deepseek",
             "deepseek_api_key": "configured-test-value",
         }
@@ -187,6 +186,7 @@ def test_environment_precedence_and_production_ai_configuration(monkeypatch: pyt
             "jwt_secret": "production-secret-at-least-32-characters",
             "web_origin": "https://simclin.example",
             "faculty_demo_access_code": "faculty-code-at-least-12-characters",
+            "faculty_demo_open_access": False,
             "ai_provider": "deepseek",
             "deepseek_api_key": "configured-test-value",
         }
