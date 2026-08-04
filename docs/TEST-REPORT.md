@@ -13,7 +13,7 @@ Python API 保留了现有 Vue 前端的 REST、错误包装与 SSE 契约。发
 | --- | --- | --- |
 | Ruff Python 静态与格式检查 | 通过 | 36 个 Python 文件通过 `ruff check` 与 `ruff format --check` |
 | Python `compileall` + Vue/Vite 生产构建 | 通过 | API 编译通过；Vue 生产包成功构建 |
-| FastAPI/SQLite `pytest` 单元与 API 契约 | 通过 | 69/69；包含旧 Node schema 迁移、代理/容量保护和 1.0 hardening/online-E2E validator |
+| FastAPI/SQLite `pytest` 单元与 API 契约 | 通过 | 70/70；包含旧 Node schema 迁移、代理/容量保护、合成学生姓名迁移和 1.0 hardening/online-E2E validator |
 | Vue Vitest | 通过 | 9/9（4 个测试文件） |
 | Playwright 桌面端与移动端 | 通过 | 12/12，14.5 秒；移动端覆盖到问诊、评价和反馈完整闭环 |
 | 真实 DeepSeek smoke | 通过 | 1/1；仅记录脱敏状态、病例标识、评分与 criterion 数量 |

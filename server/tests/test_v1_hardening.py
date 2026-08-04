@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,9 @@ def test_visitor_identity_is_stable_and_sessions_are_isolated(api: tuple[TestCli
 
     assert repeated_user["id"] == first_user["id"]
     assert repeated_user["username"] == first_user["username"]
+    assert repeated_user["displayName"] == first_user["displayName"]
+    assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", first_user["displayName"])
+    assert not first_user["displayName"].startswith("Student ")
     assert other_user["id"] != first_user["id"]
     assert other_user["username"] != first_user["username"]
 
@@ -126,6 +130,31 @@ def test_visitor_identity_is_stable_and_sessions_are_isolated(api: tuple[TestCli
         json={"message": "When did the symptom begin?"},
     )
     assert blocked_message.status_code == 404
+
+
+def test_existing_anonymous_student_codes_are_migrated_to_normal_names(tmp_path: Path) -> None:
+    database_path = tmp_path / "student-name-migration.sqlite3"
+    digest = "0123456789abcdef0123456789abcdef01234567"
+    username = f"demo_student_{digest}"
+    first = Database(str(database_path))
+    first.initialise()
+    with first.connection(write=True) as connection:
+        connection.execute(
+            "INSERT INTO users (username,display_name,role,created_at) VALUES (?,?,'student',?)",
+            (username, "Student 012345", now_iso()),
+        )
+    first.close()
+
+    migrated = Database(str(database_path))
+    migrated.initialise()
+    with migrated.connection() as connection:
+        display_name = connection.execute("SELECT display_name FROM users WHERE username=?", (username,)).fetchone()[
+            "display_name"
+        ]
+    migrated.close()
+
+    assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", display_name)
+    assert display_name != "Student 012345"
 
 
 @pytest.mark.parametrize(

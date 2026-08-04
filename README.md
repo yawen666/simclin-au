@@ -1,6 +1,6 @@
 # SimClin AU 1.0
 
-SimClin AU is an English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop without registration: each browser receives an isolated anonymous student profile, while hosted faculty access is protected by a deployment-only access code.
+SimClin AU is an English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop without registration: each browser receives an isolated anonymous student profile with a stable synthetic name, while hosted faculty access is protected by a deployment-only access code.
 
 ## Included in 1.0
 

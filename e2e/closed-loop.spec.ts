@@ -24,7 +24,7 @@ test.describe('student and role entry', () => {
     await page.getByRole('button', { name: /Enter as Student/i }).click()
     await expect(page).toHaveURL(/\/student\/?$/)
     await expect(page.getByText('Student workspace')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /Good (morning|afternoon), Student [A-F0-9]{6}\./ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Good (morning|afternoon), [A-Z][a-z]+ [A-Z][a-z]+\./ })).toBeVisible()
     await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem('simclin-demo-token')))).toBe(true)
 
     await page.getByRole('button', { name: 'Switch role' }).click()
