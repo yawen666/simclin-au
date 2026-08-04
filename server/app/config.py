@@ -108,7 +108,7 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         values.update(overrides)
     if not overrides or "faculty_demo_open_access" not in overrides:
         values["faculty_demo_open_access"] = _environment_bool(
-            "FACULTY_DEMO_OPEN_ACCESS", default=values["environment"] != "test"
+            "FACULTY_DEMO_OPEN_ACCESS", default=values["environment"] == "development"
         )
     settings = replace(Settings(), **values)
     if settings.environment not in {"development", "test", "production"}:
