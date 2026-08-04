@@ -1,7 +1,6 @@
 import { expect, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
 
 export const API_BASE = 'http://127.0.0.1:4000/api'
-export const FACULTY_ACCESS_CODE = 'simclin-e2e-faculty-code'
 
 export async function expectApiOk(response: APIResponse, label: string): Promise<void> {
   if (response.ok()) return
@@ -12,9 +11,7 @@ export async function apiLogin(request: APIRequestContext, role: 'student' | 'fa
   const response = await request.post(`${API_BASE}/auth/demo`, {
     data: {
       role,
-      ...(role === 'faculty'
-        ? { accessCode: FACULTY_ACCESS_CODE }
-        : { visitorId: `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}` }),
+      ...(role === 'student' ? { visitorId: `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}` } : {}),
     },
   })
   await expectApiOk(response, `${role} demo login`)
@@ -98,7 +95,6 @@ export async function createPublishedGeneralRubric(request: APIRequestContext) {
 export async function enterWorkspace(page: Page, role: 'student' | 'faculty') {
   await page.goto('/')
   const label = role === 'student' ? /Enter as Student/i : /Enter as Faculty/i
-  if (role === 'faculty') await page.getByLabel('Faculty access code').fill(FACULTY_ACCESS_CODE)
   await page.getByRole('button', { name: label }).click()
   await expect(page).toHaveURL(new RegExp(`/${role}/?$`))
 }

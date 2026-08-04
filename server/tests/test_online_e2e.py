@@ -64,7 +64,8 @@ def test_health_validation_requires_deployed_ai_contract() -> None:
             "database": "ok",
             "aiConfigured": True,
             "aiProvider": "deepseek",
-            "facultyAccessProtected": True,
+            "facultyAccessProtected": False,
+            "facultyAccessMode": "open-demo",
         }
     )
     assert build_id == "a1b2c3d4e5f6"
@@ -81,6 +82,7 @@ def test_health_validation_requires_deployed_ai_contract() -> None:
                 "aiConfigured": False,
                 "aiProvider": "mock",
                 "facultyAccessProtected": False,
+                "facultyAccessMode": "open-demo",
             }
         )
 

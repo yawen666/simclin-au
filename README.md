@@ -1,6 +1,6 @@
 # SimClin AU 1.0
 
-SimClin AU is an English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop without registration: each browser receives an isolated anonymous student profile, while hosted faculty access is protected by a deployment-only access code.
+SimClin AU is an English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop without registration: each browser receives an isolated anonymous student profile with a stable synthetic name, while the current hosted preview offers one-click access to both workspaces.
 
 ## Included in 1.0
 
@@ -46,13 +46,13 @@ Open [http://localhost:5173](http://localhost:5173). The API health endpoint is 
 Choose either workspace on the landing page:
 
 - Student: a stable anonymous profile scoped to this browser, with an explicit reset control
-- Faculty: the built-in educator profile (a deployment access code is required in production)
+- Faculty: the built-in educator profile, available through the one-click preview entry
 
 Data persists in `server/data/simclin-au.db`. Startup seeding is idempotent and does not modify faculty-created drafts. The API runs as one Uvicorn worker: this is deliberate because SQLite and the in-process message/evaluation concurrency guards are designed for a single application process.
 
 Completing a consultation queues its evaluation and immediately returns an `evaluating` state. Evaluation state is stored in SQLite; transient provider failures are retried once, and work left `queued` or `running` by a process restart is reclaimed at the next API startup. Students can leave the page and retrieve the result later from Practice history.
 
-The hosted faculty identity is protected by a deployment-only access code, while patient, evaluator and faculty-preview workflows share configurable per-user, per-IP and process-wide hourly budgets. Student case responses expose only the student brief and learning objectives; hidden patient facts and assessment content remain server-side.
+The hosted 1.0 preview deliberately enables open demo access for the built-in faculty identity, so the browser never contains or asks for a shared secret. This means the faculty workspace is public in this preview and must be replaced by SSO or protected mode before collecting governed teaching data. Patient, evaluator and faculty-preview workflows retain configurable per-user, per-IP and process-wide hourly budgets. Student case responses expose only the student brief and learning objectives; hidden patient facts and assessment content remain server-side.
 
 ## Verification commands
 
