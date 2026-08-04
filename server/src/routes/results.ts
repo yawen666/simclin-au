@@ -52,7 +52,7 @@ export function resultRoutes(db: AppDatabase): FastifyPluginAsync {
       const evaluation = assertFound(evaluationFor(db, id), 'Result');
       const session = db.prepare('SELECT user_id FROM sessions WHERE id=?').get(evaluation.session_id) as { user_id: number };
       if (request.user.role !== 'faculty' && session.user_id !== request.user.sub) throw new AppError(403, 'FORBIDDEN', 'This result is not available');
-      const turns = db.prepare('SELECT id,sequence,speaker,content,created_at AS createdAt FROM turns WHERE session_id=? ORDER BY sequence').all(evaluation.session_id);
+      const turns = db.prepare("SELECT id,sequence,speaker,content,created_at AS createdAt FROM turns WHERE session_id=? AND status='completed' ORDER BY sequence").all(evaluation.session_id);
       const result = assertFound(serializeResult(db, evaluation.session_id), 'Result');
       return { ...result, result, turns };
     });

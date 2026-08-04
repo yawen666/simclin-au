@@ -374,7 +374,7 @@ Object.assign(zh, {
   'One or more safety red flags were not elicited.': '未采集到一项或多项安全红旗信息。',
   'Scoring audit': '评分审计',
   'Domain weights total 100%. Positive scores require cited student-turn evidence. Educator adjustment requires an audit rationale.': '评价域权重总和为 100%。正向得分必须引用学生对话轮次证据；教师调整成绩必须填写审计理由。',
-  'The patient could not respond. Your question has been saved; please try again.': '患者暂时无法回答。你的问题已保存，请重试。',
+  'The patient could not respond. Please ask your question again.': '患者暂时无法回答，请重新提问。',
   'Settings:': '设置：',
   'Send question': '发送问题',
   'Ask the simulated patient a history-taking question…': '向模拟患者提问病史采集问题……',

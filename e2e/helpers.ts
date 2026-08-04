@@ -32,14 +32,25 @@ export async function createCompletedAttempt(request: APIRequestContext, caseId 
 
   const completed = await request.post(`${API_BASE}/sessions/${sessionId}/complete`, { headers })
   await expectApiOk(completed, 'complete consultation')
-  const completedBody = await completed.json() as {
-    resultId: string
-    result: { id: string; sessionId: string; caseTitle: string; score: number }
-  }
-  expect(completedBody.resultId).toBeTruthy()
-  expect(completedBody.result.score).toBeGreaterThanOrEqual(0)
-  expect(completedBody.result.score).toBeLessThanOrEqual(100)
-  return completedBody.result
+  expect(await completed.json()).toMatchObject({ status: 'evaluating' })
+
+  let result: { id: string; sessionId: string; caseTitle: string; score: number } | undefined
+  await expect.poll(async () => {
+    const response = await request.get(`${API_BASE}/sessions/${sessionId}`, { headers })
+    await expectApiOk(response, 'poll consultation evaluation')
+    const body = await response.json() as {
+      evaluationStatus?: string
+      result?: typeof result
+    }
+    if (body.evaluationStatus === 'failed') throw new Error('Background evaluation failed')
+    result = body.result
+    return result?.id ?? ''
+  }, { timeout: 20_000 }).not.toBe('')
+
+  expect(result).toBeDefined()
+  expect(result!.score).toBeGreaterThanOrEqual(0)
+  expect(result!.score).toBeLessThanOrEqual(100)
+  return result!
 }
 
 export async function createPublishedGeneralRubric(request: APIRequestContext) {

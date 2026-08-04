@@ -226,6 +226,67 @@ describe('API integration', () => {
     expect(statuses.find((row) => row.status === 'pending')).toBeUndefined();
   });
 
+  it('keeps failed questions out of later AI context and assessment evidence', async () => {
+    await app.close();
+    db.close();
+    const plannerTranscripts: string[][] = [];
+    let actorAttempts = 0;
+    class OneShotActorFailureProvider extends MockAiProvider {
+      override async planDisclosure(input: Parameters<MockAiProvider['planDisclosure']>[0]) {
+        plannerTranscripts.push(input.transcript.map((turn) => turn.content));
+        return super.planDisclosure(input);
+      }
+
+      override async *streamPatientReply(input: Parameters<MockAiProvider['streamPatientReply']>[0]) {
+        actorAttempts += 1;
+        if (actorAttempts === 1) throw new AppError(502, 'AI_NETWORK_ERROR', 'Synthetic actor failure');
+        yield* super.streamPatientReply(input);
+      }
+    }
+    db = createDatabase(':memory:');
+    app = await buildApp({
+      db,
+      aiProvider: new OneShotActorFailureProvider(),
+      logger: false,
+      config: loadConfig({ NODE_ENV: 'test', DATABASE_PATH: ':memory:', JWT_SECRET: 'unit-test-secret-at-least-32-characters', AI_PROVIDER: 'mock' }),
+    });
+    await app.ready();
+    const student = await token('student');
+    const headers = { authorization: `Bearer ${student}` };
+    const cases = await app.inject({ method: 'GET', url: '/api/cases', headers });
+    const started = await app.inject({ method: 'POST', url: '/api/sessions', headers, payload: { caseId: cases.json().cases[0].id } });
+    const sessionId = started.json().session.id as number;
+    const failedQuestion = 'This question should not become assessment evidence.';
+    const successfulQuestion = 'When did the chest discomfort start?';
+
+    const failed = await app.inject({
+      method: 'POST', url: `/api/sessions/${sessionId}/messages`, headers,
+      payload: { message: failedQuestion },
+    });
+    expect(failed.body).toContain('event: error');
+    expect(db.prepare("SELECT status FROM turns WHERE session_id=? AND content=?").get(sessionId, failedQuestion))
+      .toEqual({ status: 'failed' });
+
+    const successful = await app.inject({
+      method: 'POST', url: `/api/sessions/${sessionId}/messages`, headers,
+      payload: { message: successfulQuestion },
+    });
+    expect(successful.body).toContain('event: complete');
+    expect(plannerTranscripts[1]).toContain(successfulQuestion);
+    expect(plannerTranscripts[1]).not.toContain(failedQuestion);
+
+    const detail = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}`, headers });
+    expect(detail.json().turns.map((turn: { content: string }) => turn.content)).not.toContain(failedQuestion);
+    const history = await app.inject({ method: 'GET', url: '/api/history', headers });
+    expect(history.json().history[0].questionCount).toBe(1);
+
+    await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/complete`, headers });
+    const result = await waitForEvaluation(sessionId, headers);
+    expect(result.transcript.map((turn: { content: string }) => turn.content)).not.toContain(failedQuestion);
+    const resultDetail = await app.inject({ method: 'GET', url: `/api/results/${result.id}`, headers });
+    expect(resultDetail.json().turns.map((turn: { content: string }) => turn.content)).not.toContain(failedQuestion);
+  });
+
   it('keeps the published case version stable until faculty explicitly republishes', async () => {
     const student = await token('student');
     const faculty = await token('faculty');

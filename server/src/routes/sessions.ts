@@ -50,6 +50,10 @@ function getTurns(db: AppDatabase, sessionId: number): TranscriptTurn[] {
     FROM turns WHERE session_id=? ORDER BY sequence`).all(sessionId) as TranscriptTurn[];
 }
 
+function getCompletedTurns(db: AppDatabase, sessionId: number): TranscriptTurn[] {
+  return getTurns(db, sessionId).filter((turn) => turn.status === 'completed');
+}
+
 type EvidenceStatus = 'covered' | 'asked_no_credit' | 'not_asked';
 
 function evidenceStatus(
@@ -147,7 +151,7 @@ function serializeResult(db: AppDatabase, sessionId: number) {
   const missedRedFlagIds = Array.isArray(feedback.missed_red_flags)
     ? feedback.missed_red_flags.filter((value): value is string => typeof value === 'string')
     : [];
-  const transcript = getTurns(db, sessionId).map((turn) => ({
+  const transcript = getCompletedTurns(db, sessionId).map((turn) => ({
     id: String(turn.id),
     role: turn.speaker,
     content: turn.content,
@@ -240,7 +244,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       const session = getSession(db, id, 0, 'faculty');
       db.prepare("UPDATE sessions SET evaluation_status='running',evaluation_error=NULL,evaluation_started_at=? WHERE id=?")
         .run(nowIso(), id);
-      const transcript = getTurns(db, id).filter((turn) => turn.status !== 'failed' && turn.status !== 'pending');
+      const transcript = getCompletedTurns(db, id);
       const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
       const criteria = parseJson<RubricCriterion[]>(String(session.criteria_json), []);
       const started = Date.now();
@@ -361,7 +365,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
     app.get('/:id', async (request) => {
       const { id } = Params.parse(request.params);
       const session = getSession(db, id, request.user.sub, request.user.role);
-      const turns = getTurns(db, id).map((turn) => ({ ...turn, role: turn.speaker }));
+      const turns = getCompletedTurns(db, id).map((turn) => ({ ...turn, role: turn.speaker }));
       if (!serializeResult(db, id) && (session.evaluation_status === 'queued' || session.evaluation_status === 'running')) {
         queueEvaluation(id);
       }
@@ -386,7 +390,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       const session = getSession(db, id, request.user.sub, request.user.role);
       if (session.status !== 'active') throw new AppError(409, 'SESSION_NOT_ACTIVE', 'This session is no longer active');
       if (activeMessageSessions.has(id)) throw new AppError(409, 'SESSION_BUSY', 'Please wait for the simulated patient to finish responding');
-      const questionCount = db.prepare("SELECT COUNT(*) AS count FROM turns WHERE session_id=? AND speaker='student' AND status!='failed'").get(id) as { count: number };
+      const questionCount = db.prepare("SELECT COUNT(*) AS count FROM turns WHERE session_id=? AND speaker='student' AND status='completed'").get(id) as { count: number };
       if (questionCount.count >= MAX_QUESTIONS_PER_SESSION) {
         throw new AppError(409, 'SESSION_LIMIT_REACHED', `This practice session is limited to ${MAX_QUESTIONS_PER_SESSION} questions`);
       }
@@ -405,7 +409,11 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         activeMessageSessions.delete(id);
         throw error;
       }
-      const transcript = getTurns(db, id);
+      const currentStudentTurnId = Number(studentResult.lastInsertRowid);
+      // A failed or interrupted question is retained in SQLite for audit, but
+      // it must not influence a later model call. Include only completed turns
+      // plus the question currently being processed.
+      const transcript = getTurns(db, id).filter((turn) => turn.status === 'completed' || turn.id === currentStudentTurnId);
       const content = parseJson<Record<string, unknown>>(String(session.content_json), {});
 
       // Fastify's normal response lifecycle applies CORS headers when it sends
@@ -440,12 +448,14 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
           metadata: { factCount: planner.disclosedFactIds.length },
         });
       } catch (error) {
+        const errorCode = error instanceof AppError ? error.code : 'UNKNOWN';
         recordModelRun(db, {
           provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'disclosure-planner', sessionId: id,
           promptVersion: PROMPT_VERSIONS.planner, latencyMs: Date.now() - plannerStarted, status: 'error',
-          errorCode: error instanceof AppError ? error.code : 'UNKNOWN',
+          errorCode,
         });
-        db.prepare("UPDATE turns SET status='failed' WHERE id=?").run(Number(studentResult.lastInsertRowid));
+        db.prepare("UPDATE turns SET status='failed' WHERE id=?").run(currentStudentTurnId);
+        app.log.warn({ errorCode, sessionId: id }, 'Disclosure planner failed');
         activeMessageSessions.delete(id);
         clearInterval(heartbeat);
         send('error', {
@@ -478,7 +488,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         validatePatientReply(patientReply.trim(), content, validDisclosedFactIds);
         const patientSequence = sequenceNext + 1;
         const result = db.transaction(() => {
-          db.prepare("UPDATE turns SET status='completed' WHERE id=?").run(Number(studentResult.lastInsertRowid));
+          db.prepare("UPDATE turns SET status='completed' WHERE id=?").run(currentStudentTurnId);
           return db.prepare(`INSERT INTO turns (session_id,sequence,speaker,content,status,disclosed_facts_json,created_at)
             VALUES (?,?,'patient',?,'completed',?,?)`).run(id, patientSequence, patientReply.trim(), JSON.stringify(validDisclosedFactIds), nowIso());
         })();
@@ -489,12 +499,14 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
         });
         send('complete', { type: 'done', patientTurnId: Number(result.lastInsertRowid), turnId: String(result.lastInsertRowid), text: patientReply.trim() });
       } catch (error) {
-        db.prepare("UPDATE turns SET status='failed' WHERE id=?").run(Number(studentResult.lastInsertRowid));
+        db.prepare("UPDATE turns SET status='failed' WHERE id=?").run(currentStudentTurnId);
+        const errorCode = error instanceof AppError ? error.code : 'UNKNOWN';
         recordModelRun(db, {
           provider: providerName, model: providerName === 'mock' ? 'simclin-mock-v1' : modelName, purpose: 'patient-actor', sessionId: id,
           promptVersion: PROMPT_VERSIONS.actor, latencyMs: Date.now() - actorStarted, status: 'error',
-          errorCode: error instanceof AppError ? error.code : 'UNKNOWN',
+          errorCode,
         });
+        app.log.warn({ errorCode, sessionId: id }, 'Patient actor failed');
         send('error', { type: 'error', code: 'PATIENT_RESPONSE_FAILED', message: 'The simulated patient could not respond. Please retry.' });
       } finally {
         clearInterval(heartbeat);
@@ -513,7 +525,7 @@ export function sessionRoutes(db: AppDatabase, provider: AiProvider, modelName: 
       if (prior) return { status: 'completed', resultId: String(prior.id), result: prior };
       if (session.status === 'abandoned') throw new AppError(409, 'SESSION_NOT_ACTIVE', 'This session is no longer active');
       if (activeMessageSessions.has(id)) throw new AppError(409, 'SESSION_BUSY', 'Please wait for the simulated patient to finish responding');
-      const transcript = getTurns(db, id).filter((turn) => turn.status !== 'failed' && turn.status !== 'pending');
+      const transcript = getCompletedTurns(db, id);
       if (!transcript.some((turn) => turn.speaker === 'student')) {
         throw new AppError(400, 'EMPTY_SESSION', 'Ask the patient at least one question before ending the consultation');
       }

@@ -18,7 +18,7 @@ export function historyRoutes(db: AppDatabase): FastifyPluginAsync {
         END AS status,
         s.evaluation_status AS evaluationStatus,s.evaluation_error AS evaluationError,
         s.started_at AS startedAt,s.completed_at AS completedAt,s.duration_seconds AS durationSeconds,
-        (SELECT COUNT(*) FROM turns t WHERE t.session_id=s.id AND t.speaker='student') AS questionCount
+        (SELECT COUNT(*) FROM turns t WHERE t.session_id=s.id AND t.speaker='student' AND t.status='completed') AS questionCount
         FROM sessions s JOIN cases c ON c.id=s.case_id
         WHERE s.user_id=? ORDER BY s.started_at DESC LIMIT ?`).all(request.user.sub, limit) as Array<Record<string, unknown>>;
       return { history: rows.map((row) => ({
