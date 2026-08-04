@@ -21,6 +21,7 @@ class Settings:
     database_path: str = str(SERVER_ROOT / "data" / "simclin-au.db")
     jwt_secret: str = "local-development-secret-change-me"
     faculty_demo_access_code: str = ""
+    faculty_demo_open_access: bool = False
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
@@ -57,6 +58,18 @@ def _resolved_database_path(value: str) -> str:
     return str(path if path.is_absolute() else (SERVER_ROOT / path).resolve())
 
 
+def _environment_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalised = value.strip().lower()
+    if normalised in {"1", "true", "yes", "on"}:
+        return True
+    if normalised in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be true or false")
+
+
 def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
     values: dict[str, Any] = {
         # ENVIRONMENT is canonical after the Python migration. NODE_ENV is a
@@ -67,6 +80,7 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         "database_path": _resolved_database_path(os.getenv("DATABASE_PATH", "./data/simclin-au.db")),
         "jwt_secret": os.getenv("JWT_SECRET", "local-development-secret-change-me"),
         "faculty_demo_access_code": os.getenv("FACULTY_DEMO_ACCESS_CODE", ""),
+        "faculty_demo_open_access": _environment_bool("FACULTY_DEMO_OPEN_ACCESS"),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", ""),
         "deepseek_base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"),
         "deepseek_model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
@@ -182,7 +196,11 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         raise RuntimeError("JWT_SECRET must be a unique value containing at least 32 characters in production")
     if settings.environment == "production" and any("localhost" in origin for origin in settings.allowed_origins):
         raise RuntimeError("WEB_ORIGIN must be set to the deployed frontend origin in production")
-    if settings.environment == "production" and len(settings.faculty_demo_access_code) < 12:
+    if (
+        settings.environment == "production"
+        and not settings.faculty_demo_open_access
+        and len(settings.faculty_demo_access_code) < 12
+    ):
         raise RuntimeError("FACULTY_DEMO_ACCESS_CODE must contain at least 12 characters in production")
     if settings.environment == "production" and settings.ai_provider == "deepseek" and not settings.deepseek_api_key:
         raise RuntimeError("DEEPSEEK_API_KEY must be configured when AI_PROVIDER=deepseek in production")

@@ -210,7 +210,11 @@ def create_app(
             "aiConfigured": bool(resolved_settings.deepseek_api_key),
             "aiProvider": resolved_settings.ai_provider,
             "aiModel": resolved_settings.deepseek_model,
-            "facultyAccessProtected": bool(resolved_settings.faculty_demo_access_code),
+            "facultyAccessProtected": bool(resolved_settings.faculty_demo_access_code)
+            and not resolved_settings.faculty_demo_open_access,
+            "facultyAccessMode": "open-demo"
+            if resolved_settings.faculty_demo_open_access or not resolved_settings.faculty_demo_access_code
+            else "protected",
             "timestamp": now_iso(),
         }
 

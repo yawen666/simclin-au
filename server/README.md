@@ -37,7 +37,8 @@ The API is available at `http://127.0.0.1:4100`; its health endpoint is `/api/he
 | `HOST` / `PORT` | Uvicorn bind address and port | `127.0.0.1` / `4100` |
 | `DATABASE_PATH` | SQLite file; relative paths resolve from `server/` | `./data/simclin-au.db` |
 | `JWT_SECRET` | Signs the browser-scoped student and faculty JWTs | development-only default |
-| `FACULTY_DEMO_ACCESS_CODE` | Protects the built-in faculty identity; required in production | unset |
+| `FACULTY_DEMO_ACCESS_CODE` | Server-only code used when open demo access is disabled | unset |
+| `FACULTY_DEMO_OPEN_ACCESS` | Allows public full faculty access without a browser secret | `false` |
 | `AI_PROVIDER` | `deepseek` or explicit test-only `mock` | `deepseek` |
 | `AI_REQUESTS_PER_HOUR` | Per-authenticated-user ceiling for patient, evaluator and preview workflow requests | `60` |
 | `AI_REQUESTS_PER_IP_PER_HOUR` | Shared ceiling across users from one client IP; must be at least the user ceiling | `180` |
@@ -61,14 +62,14 @@ The API is available at `http://127.0.0.1:4100`; its health endpoint is `/api/he
 | `WEB_ORIGIN` | Comma-separated CORS origins | `http://localhost:5173` |
 | `LOG_LEVEL` | API log level | `info` |
 
-Production startup refuses the development JWT secret, a localhost `WEB_ORIGIN`, a missing/short faculty access code, or a missing DeepSeek key when the real provider is selected.
+Production startup refuses the development JWT secret, a localhost `WEB_ORIGIN`, a missing/short faculty access code when open demo access is disabled, or a missing DeepSeek key when the real provider is selected.
 
 ## API contract
 
 All protected routes accept `Authorization: Bearer <token>`.
 
 - `GET /api/health`
-- `POST /api/auth/demo` — `{ "role": "student" | "faculty", "visitorId"?: string, "accessCode"?: string }`; web students use a stable browser-scoped visitor ID and the code is required for faculty when configured
+- `POST /api/auth/demo` — `{ "role": "student" | "faculty", "visitorId"?: string, "accessCode"?: string }`; web students use a stable browser-scoped visitor ID, while faculty access follows the explicit open-demo/protected deployment mode
 - `GET /api/auth/me`
 - `GET|POST /api/cases`, `GET|PATCH /api/cases/:id`
 - `POST /api/cases/:id/publish|archive|preview|duplicate`

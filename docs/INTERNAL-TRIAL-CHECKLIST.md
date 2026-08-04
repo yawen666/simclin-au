@@ -18,7 +18,7 @@ cp server/.env.example server/.env   # 仅在本地文件不存在时
 npm run dev
 ```
 
-打开 `http://localhost:5173`，API 健康检查为 `http://localhost:4100/api/health`。学生无需密码，每个浏览器使用相互隔离、可重置的匿名身份；生产教师入口必须填写 Render 生成的访问码：
+打开 `http://localhost:5173`，API 健康检查为 `http://localhost:4100/api/health`。学生无需密码，每个浏览器使用相互隔离、可重置的匿名身份；当前公开演示的教师入口同样一键进入：
 
 - Student：浏览器范围的匿名学生身份
 - Faculty：内置教师身份
@@ -29,8 +29,8 @@ npm run dev
 
 - [ ] `npm run lint:api && npm run build && npm run test && npm run test:e2e` 全部通过。
 - [ ] 真实模型 smoke、五病例 regression 和线上 `npm run test:e2e:online:real` 已通过，输出中无 key、token、模型正文、prompt 或患者隐藏事实。
-- [ ] `/api/health` 返回 `status=ok`、`database=ok`、`runtime=python`、`schemaVersion=5`、`aiModel=deepseek-v4-flash` 和 `facultyAccessProtected=true`，不返回任何密钥或访问码内容。
-- [ ] 生产环境缺少 `FACULTY_DEMO_ACCESS_CODE` 或 DeepSeek key 时启动失败；教师访问码只从 Render Environment 页面向授权教师分享。
+- [ ] `/api/health` 返回 `status=ok`、`database=ok`、`runtime=python`、`schemaVersion=5`、`aiModel=deepseek-v4-flash`、`facultyAccessMode=open-demo` 和 `facultyAccessProtected=false`。
+- [ ] 前端不包含教师访问码；当前完整教师工作区按公开演示管理。关闭 open-demo 后，生产环境缺少 `FACULTY_DEMO_ACCESS_CODE` 时必须启动失败。
 - [ ] 学生病例详情响应不包含 `content`、`caseData`、`clinicalTruth`、`atomicFacts`、教师注释或评分材料。
 - [ ] 已确认只启动一个 Uvicorn worker，未水平扩容 API 实例。
 - [ ] SQLite `integrity_check` 为 `ok`，外键检查无记录。

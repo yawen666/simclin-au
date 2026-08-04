@@ -73,9 +73,15 @@ def demo_login(body: DemoLoginBody, request: Request) -> dict[str, Any]:
     # protects the single-process preview from request floods even when every
     # visitor ID is unique.
     _enforce_auth_request_limit(request)
-    expected_code = request.app.state.settings.faculty_demo_access_code
+    settings = request.app.state.settings
+    expected_code = settings.faculty_demo_access_code
     supplied_code = body.accessCode or ""
-    if body.role == "faculty" and expected_code and not hmac.compare_digest(supplied_code, expected_code):
+    if (
+        body.role == "faculty"
+        and not settings.faculty_demo_open_access
+        and expected_code
+        and not hmac.compare_digest(supplied_code, expected_code)
+    ):
         limiter = request.app.state.faculty_auth_limiter
         retry_after = limiter.consume(f"faculty-auth:{client_host(request)}", 10)
         if retry_after:
@@ -91,7 +97,6 @@ def demo_login(body: DemoLoginBody, request: Request) -> dict[str, Any]:
         visitor_digest = hashlib.sha256(visitor_id.encode("utf-8")).hexdigest()[:40]
         username = f"demo_student_{visitor_digest}"
         display_name = synthetic_student_name(visitor_digest)
-        settings = request.app.state.settings
         with request.app.state.db.connection() as connection:
             row = connection.execute(
                 """SELECT id,username,display_name AS displayName,role

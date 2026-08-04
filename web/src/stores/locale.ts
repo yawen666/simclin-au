@@ -29,9 +29,6 @@ const zh: Record<string, string> = {
   'Educator-led rubrics': '教师引导的评分表',
   'Choose your workspace': '选择工作区',
   'No sign-in required for this preview': '此预览无需登录',
-  'Student preview needs no sign-in; hosted faculty access may require a code': '学生预览无需登录；线上教师端可能需要访问码',
-  'Faculty access code': '教师访问码',
-  'Required on the hosted preview': '线上预览环境需要填写',
   'Preparing your workspace…': '正在准备工作区……',
   'This preview uses built-in demonstration identities.': '此预览使用内置演示身份。',
   'curated medical cases': '精选医学病例',
@@ -505,7 +502,7 @@ Object.assign(zh, {
   , 'Case management could not be loaded.': '病例管理页面加载失败。'
   , 'Choose another practice status or show all attempts.': '请选择其他练习状态，或查看全部练习。'
   , 'Complete every domain and behaviour anchor before publishing.': '发布前请完整填写每个评价域及其行为锚点。'
-  , 'Could not enter this workspace. Check the access code and try again.': '无法进入此工作区，请检查访问码后重试。'
+  , 'Could not enter this workspace. Please try again.': '无法进入此工作区，请稍后重试。'
   , 'Discard unsaved case changes?': '放弃尚未保存的病例修改吗？'
   , 'Discard unsaved rubric changes?': '放弃尚未保存的评分表修改吗？'
   , 'Educator feedback': '教师反馈'
@@ -525,7 +522,6 @@ Object.assign(zh, {
   , 'Skip to main content': '跳到主要内容'
   , 'Start a new anonymous student profile? This browser will no longer be able to open the current profile history.': '要新建匿名学生身份吗？新建后，本浏览器将无法再打开当前身份的练习记录。'
   , 'Start new student profile': '新建学生身份'
-  , 'Student preview needs no sign-in; hosted faculty access requires a code': '学生预览无需登录；线上教师端必须使用访问码。'
   , 'The case library could not be loaded.': '病例库加载失败。'
   , 'The case preview could not be loaded.': '病例预览加载失败。'
   , 'The consultation could not be loaded.': '问诊加载失败。'
