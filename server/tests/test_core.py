@@ -153,6 +153,7 @@ def test_environment_precedence_and_production_ai_configuration(monkeypatch: pyt
     monkeypatch.setenv("NODE_ENV", "development")
     monkeypatch.setenv("ENVIRONMENT", "test")
     assert load_settings().environment == "test"
+    assert load_settings().deepseek_model == "deepseek-v4-flash"
 
     with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
         load_settings(

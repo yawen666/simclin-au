@@ -54,7 +54,7 @@ evaluate(input)             -> EvaluationResult
 ```text
 AI_PROVIDER=deepseek
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-pro
+DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=<通过本地环境变量提供>
 ```
 

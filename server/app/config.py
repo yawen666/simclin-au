@@ -23,7 +23,7 @@ class Settings:
     faculty_demo_access_code: str = ""
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-v4-pro"
+    deepseek_model: str = "deepseek-v4-flash"
     ai_provider: str = "deepseek"
     web_origin: str = "http://localhost:5173"
     log_level: str = "info"
@@ -69,7 +69,7 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         "faculty_demo_access_code": os.getenv("FACULTY_DEMO_ACCESS_CODE", ""),
         "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", ""),
         "deepseek_base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-        "deepseek_model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+        "deepseek_model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         "ai_provider": os.getenv("AI_PROVIDER", "deepseek"),
         "web_origin": os.getenv("WEB_ORIGIN", "http://localhost:5173"),
         "log_level": os.getenv("LOG_LEVEL", "info"),

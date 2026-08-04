@@ -57,7 +57,7 @@ The API is available at `http://127.0.0.1:4100`; its health endpoint is `/api/he
 | `MAX_TOTAL_SESSIONS` | Hard cap on saved sessions in the SQLite database | `50000` |
 | `DEEPSEEK_API_KEY` | Server-only provider credential | unset |
 | `DEEPSEEK_BASE_URL` | Provider API base URL | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Model name recorded with each run | `deepseek-v4-pro` |
+| `DEEPSEEK_MODEL` | Model name recorded with each run | `deepseek-v4-flash` |
 | `WEB_ORIGIN` | Comma-separated CORS origins | `http://localhost:5173` |
 | `LOG_LEVEL` | API log level | `info` |
 

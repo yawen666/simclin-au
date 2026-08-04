@@ -138,7 +138,7 @@ flowchart LR
 - **前端**：Vue 3.5、TypeScript、Vite、Vue Router、Pinia、Axios、原生 `fetch` SSE、ECharts、Markdown-it、KaTeX、Highlight.js。
 - **后端**：Python 3.12、FastAPI、Uvicorn、HTTPX、分模块 Router/Dependency、服务端 HMAC JWT、Multipart。对外 REST、错误包装和 SSE 契约与原 Vue 前端兼容。
 - **数据库**：Python 原生 `sqlite3`，按操作建立短连接，启用外键、WAL、`busy_timeout=5000` 和完整同步写；启动自动建表、补列迁移和幂等播种。
-- **AI**：统一 `AiProvider` 接口，当前默认 `DeepSeekProvider`，回归测试可显式注入 `MockAiProvider`；模型配置由 `DEEPSEEK_MODEL` 控制，当前默认 `deepseek-v4-pro`。
+- **AI**：统一 `AiProvider` 接口，当前默认 `DeepSeekProvider`，回归测试可显式注入 `MockAiProvider`；模型配置由 `DEEPSEEK_MODEL` 控制，当前默认 `deepseek-v4-flash`。
 
 服务端在 Render 和本地验收中都只启动 **1 个 Uvicorn worker**。SQLite 是持久状态的真实来源；防止同一 session 并发消息或重复评价的活跃集合位于单进程内，因此当前架构不支持多 worker/多实例水平扩展。
 
