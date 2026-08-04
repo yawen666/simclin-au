@@ -10,7 +10,7 @@ SimClin AU 是一个以 AI 标准化患者为核心的病史采集训练工具�
 
 ### 1.1 MVP 目标
 
-- 内置一个演示学生和一个演示教师，不要求注册登录流程。
+- 内置一个演示学生和一个演示教师，不要求注册流程；生产教师入口必须提供部署专用访问码。
 - 预置 5 个以内科为主的英文病例，覆盖心脏/急诊、呼吸、胃肠、神经和内分泌场景。
 - 学生可以浏览病例、开始问诊、通过 SSE 接收 AI 患者回答、结束问诊并查看反馈。
 - 教师可以创建和版本化病例，关联已发布评分表，预览、发布、复制、归档病例。
@@ -24,7 +24,7 @@ SimClin AU 是一个以 AI 标准化患者为核心的病史采集训练工具�
 | Student | 选择病例、完成病史采集、查看形成性反馈和历史记录 | `/student`、`/student/cases`、`/student/consultation/:sessionId`、`/student/feedback/:id` |
 | Faculty | 管理病例、评分表、发布状态、成绩复核和教学洞察 | `/faculty`、`/faculty/cases`、`/faculty/rubrics`、`/faculty/results`、`/faculty/insights` |
 
-当前登录是内置演示身份加 JWT 会话，目的是保护学生端与教师端的最小边界；它不是生产级身份认证。后续接入医学院时应替换为学校 SSO、正式角色映射和审计策略。
+当前登录是内置演示身份加 JWT 会话：学生可直接进入短时预览，生产教师入口额外校验部署专用访问码。它仍不是学校级身份认证；正式接入医学院时应替换为 SSO、正式角色映射和审计策略。
 
 ## 3. 端到端闭环
 
@@ -42,12 +42,13 @@ flowchart LR
   H --> I[保存 student / patient turns]
   I --> D
   I --> J[结束问诊]
-  J --> K[Evaluator + Rubric]
-  K --> L[Evidence-linked feedback]
-  L --> M[历史记录与教师复核]
+  J --> K[持久化 evaluation_status=queued]
+  K --> L[后台 Evaluator + Rubric]
+  L --> M[Evidence-linked feedback]
+  M --> N[历史记录与教师复核]
 ```
 
-一次问诊中，每个学生问题都经过“事实披露规划”再进入“患者角色回答”。模型不能直接看到全部病例事实并自由发挥；它只能使用本轮被允许披露的事实。结束问诊后，评价模型读取完整对话和固定评分表版本，输出结构化评价，再由服务端校验、归一化并保存。
+一次问诊中，每个学生问题都经过“事实披露规划”再进入“患者角色回答”。模型不能直接看到全部病例事实并自由发挥；它只能使用本轮被允许披露的事实。结束问诊时，API 先将评价状态写入 SQLite 并返回 `evaluating`，后台任务再读取完整对话和固定评分表版本，输出结构化评价，由服务端校验、归一化并保存。学生可离开当前页面，稍后从 Practice history 取回结果。
 
 ### 3.2 教师主流程
 
@@ -126,18 +127,20 @@ flowchart LR
 
 ## 5. 总体技术架构
 
-![SimClin AU 详细产品架构图](./assets/simclin-au-detailed-architecture.png)
+![SimClin AU 详细产品架构图](./assets/simclin-au-detailed-architecture-fastapi.png)
 
-这张图是工程视角的详细架构图，重点展示 UI、Fastify API、AI 编排、数据表和 DeepSeek 之间的调用关系；上一张总览图保留用于快速介绍产品：
+这张图是工程视角的详细架构图，重点展示 UI、API 编排、数据表和 DeepSeek 之间的调用关系；上一张总览图保留用于快速介绍产品：
 
-![SimClin AU 产品架构总览图](./assets/simclin-au-product-architecture.png)
+![SimClin AU 产品架构总览图](./assets/simclin-au-product-architecture-fastapi.png)
 
-图中展示产品的四层关系：学生/教师界面、Fastify API 编排层、SQLite 领域数据层，以及 DeepSeek AI 能力层。项目实际使用的架构为：
+图中展示产品的四层关系：学生/教师界面、FastAPI 编排层、SQLite 领域数据层，以及 DeepSeek AI 能力层。项目 1.0 重构后的实际架构为：
 
 - **前端**：Vue 3.5、TypeScript、Vite、Vue Router、Pinia、Axios、原生 `fetch` SSE、ECharts、Markdown-it、KaTeX、Highlight.js。
-- **后端**：Node.js、TypeScript ES Module、Fastify 5、插件式路由、Zod、JWT、Multipart。
-- **数据库**：SQLite + better-sqlite3，同步 SQL 访问，WAL 模式，启动自动建表、补列迁移和播种基础数据。
+- **后端**：Python 3.12、FastAPI、Uvicorn、HTTPX、分模块 Router/Dependency、服务端 HMAC JWT、Multipart。对外 REST、错误包装和 SSE 契约与原 Vue 前端兼容。
+- **数据库**：Python 原生 `sqlite3`，按操作建立短连接，启用外键、WAL、`busy_timeout=5000` 和完整同步写；启动自动建表、补列迁移和幂等播种。
 - **AI**：统一 `AiProvider` 接口，当前默认 `DeepSeekProvider`，回归测试可显式注入 `MockAiProvider`；模型配置由 `DEEPSEEK_MODEL` 控制，当前默认 `deepseek-v4-pro`。
+
+服务端在 Render 和本地验收中都只启动 **1 个 Uvicorn worker**。SQLite 是持久状态的真实来源；防止同一 session 并发消息或重复评价的活跃集合位于单进程内，因此当前架构不支持多 worker/多实例水平扩展。
 
 ### 5.1 请求和服务边界
 
@@ -148,8 +151,8 @@ flowchart TB
     F[Faculty workspace]
     SSE[Native fetch SSE client]
   end
-  subgraph API[Fastify 5 API]
-    AUTH[JWT auth plugin]
+  subgraph API[FastAPI / Python 3.12]
+    AUTH[JWT auth dependency]
     CASE[Case routes]
     RUBRIC[Rubric routes]
     SESSION[Session routes]
@@ -157,7 +160,7 @@ flowchart TB
     INSIGHT[Insight routes]
     AI[AI orchestration]
   end
-  DB[(SQLite WAL)]
+  DB[(native sqlite3 / WAL)]
   DS[DeepSeek v4]
   S --> AUTH
   F --> AUTH
@@ -181,7 +184,7 @@ flowchart TB
 
 | 前缀 | 责任 |
 | --- | --- |
-| `/api/auth` | 演示角色登录、JWT 会话 |
+| `/api/auth` | 演示角色登录、生产教师访问码、JWT 会话 |
 | `/api/cases` | 病例 CRUD、预览、复制、发布、归档 |
 | `/api/rubrics` | 评分表 CRUD、版本、发布、归档 |
 | `/api/sessions` | 创建问诊、SSE 消息、完成问诊、获取结果 |
@@ -209,9 +212,10 @@ sequenceDiagram
   API->>DB: 保存 student turn + disclosure context
   API->>Actor: patient profile + permitted facts + transcript
   Actor->>DS: patient-role streaming prompt
-  DS-->>Actor: token chunks
-  Actor-->>Student: SSE delta events
-  API->>DB: 保存 patient turn + disclosed_facts_json
+  DS-->>Actor: token chunks buffered on server
+  Actor->>API: 完整回答通过隐藏事实与 prompt 泄漏校验
+  API->>DB: 原子保存 student/patient turn + disclosed_facts_json
+  API-->>Student: 校验后回放 SSE delta + complete
 ```
 
 结束问诊时，Session API 会把固定版本的病例、评分表、完整 transcript 和允许的红旗 ID 交给 Evaluator；Evaluator 的 JSON 先进入 schema/白名单/证据校验，再落入 `evaluations`、`criterion_scores` 和 `model_runs`。
@@ -247,6 +251,8 @@ erDiagram
 
 病例事实必须有稳定 ID，例如 `chest.hpi.01`、`chest.rf.ongoing`。ID 是 AI 披露控制、红旗评价和教师维护之间的契约；病例发布前会校验评分表引用的红旗 ID 是否存在于病例。
 
+学生病例详情接口只投影目录元数据、`candidateInstructions` 和 `learningObjectives`。完整 `content`、`atomicFacts`、诊断、教师注释和评分材料只在教师路由及服务端 AI 编排内部可见，不能通过学生 API 获取。
+
 ### 6.2 Rubric（评分表）
 
 评分表不是一个总分提示词，而是一组可观察的行为标准。每个评价域包含：
@@ -270,11 +276,27 @@ erDiagram
 stateDiagram-v2
   [*] --> active: start session
   active --> active: send question / receive patient stream
-  active --> completed: complete + evaluate
+  active --> completed: complete + queue evaluation
   active --> abandoned: leave or expire
   completed --> [*]
   abandoned --> [*]
 ```
+
+问诊状态与评价状态分离。一次已结束的 session 可以在后台经历：
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued: student completes session
+  queued --> running: background coordinator claims work
+  running --> completed: validated evaluation persisted
+  running --> running: retry one transient provider failure
+  running --> queued: process shutdown / restart recovery
+  running --> failed: permanent provider or validation failure
+  failed --> queued: student retries from history
+  completed --> [*]
+```
+
+`queued` / `running` 状态存在 SQLite 中。应用启动时会找出未产生 evaluation 的持久工作并重新入队；可重试的网络、超时、供应商或空响应错误至多自动补试一次。这保证页面跳转或普通进程重启不会丢失任务，前提是 SQLite 文件本身位于持久存储。
 
 ### 6.4 Evaluation / CriterionScore / Override
 
@@ -356,7 +378,7 @@ final AI score = sum(all weighted criterion scores), rounded to 0–100
 - 所有病例和患者均为合成教学资料。
 - API key 只在服务端使用，浏览器不会接触 DeepSeek key。
 - 学生只能访问自己的 session/result；教师才能访问病例管理、结果复核和洞察。
-- SQLite WAL 适合本地单实例 MVP；生产环境需要加密、备份、访问审计、密钥轮换和学校隐私治理。
+- SQLite WAL 适合本地和单实例内部试点；必须只运行一个 Uvicorn worker。Render 免费文件系统会丢数据，稳定试点需经用户批准改为 Starter + `/var/data` 持久盘，并配置加密、备份、访问审计、密钥轮换和学校隐私治理。
 - 正式上线前，病例、红旗问题、评分表和反馈语言应由澳洲医学院教师、临床专家和隐私/伦理负责人审核。
 
 ## 9. 前端交互和反馈设计
@@ -377,12 +399,13 @@ final AI score = sum(all weighted criterion scores), rounded to 0–100
 
 ### 当前 1.0 已实现
 
-- 本地 Vue + Fastify + SQLite 可运行闭环。
+- Vue 3 产品界面 + FastAPI/Python 3.12 + 原生 SQLite 的 1.0 闭环，保留原 REST/SSE 契约。
 - DeepSeek provider、Mock provider、SSE 流式患者回答。
 - 5 个预置病例和预置评分表。
 - 病例/评分表版本化和发布完整性校验。
 - AI 评分、证据 turn、红旗漏问、教师审计改分。
-- 桌面端和移动端回归测试、角色越权测试、真实模型 smoke/regression。
+- 持久化后台评价状态、可重试失败处理和进程重启恢复。
+- Pytest API/数据库契约、Vue Vitest、桌面/移动端 Playwright 和真实模型 smoke/regression 的验收入口；最终实测数据以 [TEST-REPORT.md](./TEST-REPORT.md) 为准。
 
 ### 下一阶段建议
 

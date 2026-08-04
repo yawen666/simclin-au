@@ -4,15 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
-    "build": "npm --prefix server run build && npm --prefix web run build",
-    "test": "npm --prefix server test && npm --prefix web test",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev:api\" \"npm --prefix web run dev\"",
+    "dev:api": "server/.venv/bin/python -m uvicorn app.main:app --app-dir server --host 127.0.0.1 --port 4100 --reload",
+    "build": "npm run build:api && npm --prefix web run build",
+    "build:api": "server/.venv/bin/python -m compileall -q server/app server/tests",
+    "lint:api": "server/.venv/bin/ruff check server/app server/tests && server/.venv/bin/ruff format --check server/app server/tests",
+    "test": "npm run test:api && npm --prefix web test",
+    "test:api": "PYTHONPATH=server server/.venv/bin/pytest server/tests",
     "test:e2e": "playwright test",
-    "test:all": "npm run test && npm run test:e2e"
+    "test:all": "npm run lint:api && npm run test && npm run build && npm run test:e2e",
+    "test:smoke:real": "PYTHONPATH=server server/.venv/bin/python -m app.real_smoke",
+    "test:regression:real": "env -u SIMCLIN_REAL_CASE_SLUG PYTHONPATH=server server/.venv/bin/python -m app.real_regression"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "concurrently": "^9.2.1"
   }
 }
-

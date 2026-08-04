@@ -1,4 +1,9 @@
 node_modules/
+.venv/
+server/.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
 dist/
 coverage/
 playwright-report/
@@ -11,3 +16,4 @@ test-results/
 !.env.example
 server/data/*.db
 server/data/*.db-*
+server/data/uploads/

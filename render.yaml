@@ -1,18 +1,17 @@
 services:
   - type: web
     name: simclin-au-api
-    runtime: node
+    runtime: python
     plan: free
     rootDir: server
-    # Render may set NODE_ENV=production during the image build. Keep dev
-    # dependencies available here because TypeScript and its type definitions
-    # are required to compile the server before the production start command.
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /api/health
     envVars:
-      - key: NODE_ENV
+      - key: ENVIRONMENT
         value: production
+      - key: PYTHON_VERSION
+        value: 3.12.11
       - key: HOST
         value: 0.0.0.0
       - key: PORT
@@ -20,6 +19,8 @@ services:
       - key: DATABASE_PATH
         value: ./data/simclin-au.db
       - key: JWT_SECRET
+        generateValue: true
+      - key: FACULTY_DEMO_ACCESS_CODE
         generateValue: true
       - key: DEEPSEEK_API_KEY
         sync: false
@@ -29,6 +30,8 @@ services:
         value: deepseek-v4-pro
       - key: AI_PROVIDER
         value: deepseek
+      - key: AI_REQUESTS_PER_HOUR
+        value: 60
       - key: WEB_ORIGIN
         value: https://simclin-au-web.onrender.com
       - key: LOG_LEVEL

@@ -19,7 +19,7 @@ test.describe('student and role entry', () => {
 
     await expect(page).toHaveTitle('SimClin AU')
     await expect(page.getByRole('heading', { name: /Build clinical confidence/i })).toBeVisible()
-    await expect(page.getByText('No sign-in required for this preview')).toBeVisible()
+    await expect(page.getByText('Student preview needs no sign-in; hosted faculty access may require a code')).toBeVisible()
 
     await page.getByRole('button', { name: /Enter as Student/i }).click()
     await expect(page).toHaveURL(/\/student\/?$/)

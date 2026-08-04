@@ -8,9 +8,9 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<DemoUser | null>(JSON.parse(localStorage.getItem(USER_KEY) || 'null'))
   const loading = ref(false)
   const role = computed(() => user.value?.role)
-  async function enterAs(nextRole: Role) {
+  async function enterAs(nextRole: Role, accessCode?: string) {
     loading.value = true
-    try { const result = await api.demoLogin(nextRole); user.value = result.user; localStorage.setItem(USER_KEY, JSON.stringify(result.user)); return result.user }
+    try { const result = await api.demoLogin(nextRole, accessCode); user.value = result.user; localStorage.setItem(USER_KEY, JSON.stringify(result.user)); return result.user }
     finally { loading.value = false }
   }
   function logout() { user.value = null; api.clearToken(); localStorage.removeItem(USER_KEY) }

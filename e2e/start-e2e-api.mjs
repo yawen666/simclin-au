@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const databasePath = '/private/tmp/simclin-au-e2e.db'
+const databasePath = resolve(tmpdir(), 'simclin-au-e2e.db')
+const python = process.env.SIMCLIN_PYTHON || resolve(projectRoot, 'server/.venv/bin/python')
 
 // This is an explicitly scoped, test-only database. Removing all three SQLite
 // files makes every Playwright run independent from previous local activity.
@@ -12,18 +14,21 @@ for (const suffix of ['', '-wal', '-shm']) {
   rmSync(`${databasePath}${suffix}`, { force: true })
 }
 
-const build = spawnSync('npm', ['--prefix', 'server', 'run', 'build'], {
+const build = spawnSync(python, ['-m', 'compileall', '-q', 'server/app'], {
   cwd: projectRoot,
   stdio: 'inherit',
 })
 if (build.status !== 0) process.exit(build.status ?? 1)
 
-const child = spawn(process.execPath, ['server/dist/index.js'], {
+const child = spawn(python, [
+  '-m', 'uvicorn', 'app.main:app', '--app-dir', 'server',
+  '--host', '127.0.0.1', '--port', '4000', '--workers', '1',
+], {
   cwd: projectRoot,
   stdio: 'inherit',
   env: {
     ...process.env,
-    NODE_ENV: 'test',
+    ENVIRONMENT: 'test',
     HOST: '127.0.0.1',
     PORT: '4000',
     DATABASE_PATH: databasePath,

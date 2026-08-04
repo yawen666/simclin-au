@@ -17,7 +17,7 @@ class ApiClient {
   clearToken() { localStorage.removeItem(TOKEN_KEY) }
   getToken() { return localStorage.getItem(TOKEN_KEY) }
 
-  async demoLogin(role: Role) { const { data } = await this.http.post<AuthResponse>('/auth/demo', { role }); this.setToken(data.token); return data }
+  async demoLogin(role: Role, accessCode?: string) { const { data } = await this.http.post<AuthResponse>('/auth/demo', { role, ...(accessCode ? { accessCode } : {}) }); this.setToken(data.token); return data }
   async getCases(params?: { status?: string }) {
     const data = (await this.http.get<{ cases?: ClinicalCase[]; items?: ClinicalCase[] }>('/cases', { params })).data
     const cases = data.cases ?? data.items ?? []
@@ -50,8 +50,7 @@ class ApiClient {
   async getSession(id: string) { const data = (await this.http.get<ClinicalSession & { session?: ClinicalSession }>(`/sessions/${id}`)).data; return data.session ?? data }
   async getSessions() { return (await this.http.get<{ items: ClinicalSession[] } | ClinicalSession[]>('/sessions')).data }
   async completeSession(id: string) {
-    // Send an explicit empty JSON object so Fastify's JSON parser never sees
-    // an empty request body with an application/json content type.
+    // Keep the explicit empty object for compatibility with existing API clients.
     const data = (await this.http.post<{
       status: 'evaluating' | 'completed'
       sessionId?: string
