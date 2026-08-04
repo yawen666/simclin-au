@@ -388,12 +388,12 @@ Object.assign(zh, {
   published: '已发布',
   draft: '草稿',
   archived: '已归档',
-  'General Medicine': '全科医学',
+  'General Medicine': '普通内科',
   'Cardiology / Emergency Medicine': '心脏科 / 急诊医学',
-  'Respiratory Medicine / General Medicine': '呼吸医学 / 全科医学',
-  'Gastroenterology / General Medicine': '胃肠病学 / 全科医学',
+  'Respiratory Medicine / General Medicine': '呼吸医学 / 普通内科',
+  'Gastroenterology / General Medicine': '胃肠病学 / 普通内科',
   'Neurology / Emergency Medicine': '神经科 / 急诊医学',
-  'Endocrinology / General Medicine': '内分泌科 / 全科医学',
+  'Endocrinology / General Medicine': '内分泌科 / 普通内科',
   'General practice': '全科诊所',
   'University health general practice clinic': '大学健康中心全科诊所',
   'Same-day acute general practice clinic': '当日急性全科诊所',
@@ -485,6 +485,87 @@ Object.assign(zh, {
   , 'Disclosure planner': '事实披露规划器'
   , 'Patient actor': '患者角色模型'
   , 'Evaluator': '评价模型'
+  , 'The request took too long. Please try again.': '请求等待时间过长，请重试。'
+  , 'The service is temporarily unreachable. Check your connection and try again.': '暂时无法连接服务，请检查网络后重试。'
+  , 'Your session has expired. Please choose a workspace again.': '登录状态已过期，请重新选择工作区。'
+  , 'The patient is preparing a response.': '患者正在准备回答。'
+  , 'The patient response was interrupted. Your consultation has been refreshed; please try again if the answer is not shown.': '患者回答传输中断。问诊记录已刷新；如果没有显示回答，请重新提问。'
+  , 'End consultation?': '结束问诊吗？'
+  , 'End and generate feedback': '结束并生成反馈'
+  , 'The case editor could not be loaded.': '病例编辑器加载失败。'
+  , 'Back to case management': '返回病例管理'
+  , 'Complete the case quality checks before publishing.': '请先完成病例发布检查。'
+  , 'Red flag without an ID references an unknown fact.': '一项未填写 ID 的红旗信号关联了未知事实。'
+  , 'Archive this published case? Existing attempts will keep their saved version.': '归档这个已发布病例吗？现有练习会继续保留其已保存版本。'
+  , 'Filter cases by status': '按状态筛选病例'
+  , 'Archive this rubric? Published cases must be relinked first.': '归档这个评分表吗？请先为已发布病例重新关联其他评分表。'
+  , 'Ask at least one question before ending the consultation.': '请至少提问一次后再结束问诊。'
+  , 'Back to practice history': '返回练习记录'
+  , 'Cancel response': '取消回答'
+  , 'Case management could not be loaded.': '病例管理页面加载失败。'
+  , 'Choose another practice status or show all attempts.': '请选择其他练习状态，或查看全部练习。'
+  , 'Complete every domain and behaviour anchor before publishing.': '发布前请完整填写每个评价域及其行为锚点。'
+  , 'Could not enter this workspace. Check the access code and try again.': '无法进入此工作区，请检查访问码后重试。'
+  , 'Discard unsaved case changes?': '放弃尚未保存的病例修改吗？'
+  , 'Discard unsaved rubric changes?': '放弃尚未保存的评分表修改吗？'
+  , 'Educator feedback': '教师反馈'
+  , 'Every domain needs a description and complete behaviour anchors for scores 0 to 3.': '每个评价域都需要填写描述，以及 0 至 3 分的完整行为锚点。'
+  , 'Filter by review status': '按复核状态筛选'
+  , 'Learning objective': '学习目标'
+  , 'Next': '下一页'
+  , 'No attempts match this filter': '没有符合当前筛选条件的练习'
+  , 'Open result': '打开成绩详情'
+  , 'Page': '页码'
+  , 'Practice history could not be loaded.': '练习记录加载失败。'
+  , 'Previous': '上一页'
+  , 'Results could not be loaded.': '学生成绩加载失败。'
+  , 'Results pages': '成绩分页导航'
+  , 'Save your changes before publishing': '请先保存修改，再进行发布。'
+  , 'Search results': '搜索成绩'
+  , 'Skip to main content': '跳到主要内容'
+  , 'Start a new anonymous student profile? This browser will no longer be able to open the current profile history.': '要新建匿名学生身份吗？新建后，本浏览器将无法再打开当前身份的练习记录。'
+  , 'Start new student profile': '新建学生身份'
+  , 'Student preview needs no sign-in; hosted faculty access requires a code': '学生预览无需登录；线上教师端必须使用访问码。'
+  , 'The case library could not be loaded.': '病例库加载失败。'
+  , 'The case preview could not be loaded.': '病例预览加载失败。'
+  , 'The consultation could not be loaded.': '问诊加载失败。'
+  , 'The faculty dashboard could not be loaded.': '教师仪表盘加载失败。'
+  , 'The final score and this comment are visible to the student.': '最终成绩和此评语会向学生显示。'
+  , 'The patient response timed out. Your question has been restored; please try again.': '患者回答超时。你的问题已恢复，请重试。'
+  , 'The patient response was cancelled. Your question has been restored.': '患者回答已取消。你的问题已恢复。'
+  , 'Transcript evidence focused.': '已定位到对话记录中的相关证据。'
+  , 'Your educator reviewed the automated assessment. This comment and the final score above are part of your formative feedback.': '教师已复核自动评价。此评语和上方最终成绩均属于你的形成性反馈。'
+  , 'Your learning space could not be loaded.': '学习工作区加载失败。'
+  , 'evidence-linked domains are scored against behaviour anchors from 0 to 3. Domain weights total 100%.': '个有证据关联的评价域按照 0 至 3 分的行为锚点评分，各域权重总和为 100%。'
+  , 'results': '条成绩'
+  , 'Adjust the search or review filter.': '请调整搜索条件或复核状态筛选。'
+  , 'Loading': '正在加载'
+  , 'The case could not be loaded.': '病例加载失败。'
+  , 'Feedback could not be loaded.': '反馈加载失败。'
+  , 'The result could not be loaded.': '成绩详情加载失败。'
+  , 'Discard unsaved review changes?': '放弃尚未保存的复核修改吗？'
+  , 'Try again': '重试'
+  , 'View chart data': '查看图表数据'
+  , 'Mean score': '平均分'
+  , 'Score band': '分数区间'
+  , 'The case title must contain 2 to 160 characters.': '病例标题必须包含 2 至 160 个字符。'
+  , 'Add a student-facing subtitle of up to 1,000 characters.': '请填写不超过 1,000 个字符的学生端副标题。'
+  , 'Add a clinical setting of up to 120 characters.': '请填写不超过 120 个字符的临床场景。'
+  , 'Add the student task of up to 4,000 characters.': '请填写不超过 4,000 个字符的学生任务。'
+  , 'Add the presenting complaint of up to 4,000 characters.': '请填写不超过 4,000 个字符的主诉。'
+  , 'Set the consultation duration between 3 and 60 minutes.': '请将问诊时长设置为 3 至 60 分钟。'
+  , 'Add an opening statement of up to 2,000 characters.': '请填写不超过 2,000 个字符的开场陈述。'
+  , 'Include 1 to 80 complete patient facts within the field limits.': '请添加 1 至 80 条完整且符合长度限制的患者事实。'
+  , 'Fact IDs may contain only letters, numbers, dots, underscores, colons and hyphens.': '事实 ID 只能包含字母、数字、点、下划线、冒号和连字符。'
+  , 'Each fact may have up to 25 trigger phrases of up to 200 characters.': '每条事实最多可有 25 个触发词，每个不超过 200 个字符。'
+  , 'A case may contain up to 40 red flags.': '每个病例最多可包含 40 个红旗信号。'
+  , 'Red flag IDs must be unique.': '红旗信号 ID 必须唯一。'
+  , 'Complete every red flag with a structurally valid ID and label.': '请为每个红旗信号填写格式有效的 ID 和标签。'
+  , 'Every red flag must link to between 1 and 20 patient facts.': '每个红旗信号必须关联 1 至 20 条患者事实。'
+  , 'Every linked red flag fact must exist in this case.': '红旗信号关联的每条事实都必须存在于当前病例。'
+  , 'Each red flag may have up to 25 required question themes of up to 200 characters.': '每个红旗信号最多可有 25 个必问主题，每个不超过 200 个字符。'
+  , 'Learning objectives must be complete, with no more than 20 entries of up to 500 characters.': '学习目标不得留空，最多 20 条，每条不超过 500 个字符。'
+  , 'Patient actor rules must be complete, with no more than 20 entries of up to 500 characters.': '患者角色规则不得留空，最多 20 条，每条不超过 500 个字符。'
 })
 
 export const useLocaleStore = defineStore('locale', () => {

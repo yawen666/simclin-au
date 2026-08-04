@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -27,6 +28,22 @@ class Settings:
     web_origin: str = "http://localhost:5173"
     log_level: str = "info"
     ai_requests_per_hour: int = 60
+    ai_requests_per_ip_per_hour: int = 180
+    ai_global_requests_per_hour: int = 360
+    auth_requests_per_ip_per_hour: int = 120
+    auth_global_requests_per_hour: int = 1200
+    anonymous_profiles_per_ip_per_hour: int = 20
+    anonymous_profiles_global_per_hour: int = 200
+    max_anonymous_student_profiles: int = 5000
+    session_requests_per_user_per_hour: int = 60
+    session_requests_per_ip_per_hour: int = 240
+    session_global_requests_per_hour: int = 1000
+    session_starts_per_user_per_hour: int = 30
+    session_starts_per_ip_per_hour: int = 120
+    session_starts_global_per_hour: int = 500
+    max_sessions_per_student: int = 100
+    max_total_sessions: int = 50000
+    build_id: str = "development"
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -57,6 +74,22 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         "web_origin": os.getenv("WEB_ORIGIN", "http://localhost:5173"),
         "log_level": os.getenv("LOG_LEVEL", "info"),
         "ai_requests_per_hour": int(os.getenv("AI_REQUESTS_PER_HOUR", "60")),
+        "ai_requests_per_ip_per_hour": int(os.getenv("AI_REQUESTS_PER_IP_PER_HOUR", "180")),
+        "ai_global_requests_per_hour": int(os.getenv("AI_GLOBAL_REQUESTS_PER_HOUR", "360")),
+        "auth_requests_per_ip_per_hour": int(os.getenv("AUTH_REQUESTS_PER_IP_PER_HOUR", "120")),
+        "auth_global_requests_per_hour": int(os.getenv("AUTH_GLOBAL_REQUESTS_PER_HOUR", "1200")),
+        "anonymous_profiles_per_ip_per_hour": int(os.getenv("ANONYMOUS_PROFILES_PER_IP_PER_HOUR", "20")),
+        "anonymous_profiles_global_per_hour": int(os.getenv("ANONYMOUS_PROFILES_GLOBAL_PER_HOUR", "200")),
+        "max_anonymous_student_profiles": int(os.getenv("MAX_ANONYMOUS_STUDENT_PROFILES", "5000")),
+        "session_requests_per_user_per_hour": int(os.getenv("SESSION_REQUESTS_PER_USER_PER_HOUR", "60")),
+        "session_requests_per_ip_per_hour": int(os.getenv("SESSION_REQUESTS_PER_IP_PER_HOUR", "240")),
+        "session_global_requests_per_hour": int(os.getenv("SESSION_GLOBAL_REQUESTS_PER_HOUR", "1000")),
+        "session_starts_per_user_per_hour": int(os.getenv("SESSION_STARTS_PER_USER_PER_HOUR", "30")),
+        "session_starts_per_ip_per_hour": int(os.getenv("SESSION_STARTS_PER_IP_PER_HOUR", "120")),
+        "session_starts_global_per_hour": int(os.getenv("SESSION_STARTS_GLOBAL_PER_HOUR", "500")),
+        "max_sessions_per_student": int(os.getenv("MAX_SESSIONS_PER_STUDENT", "100")),
+        "max_total_sessions": int(os.getenv("MAX_TOTAL_SESSIONS", "50000")),
+        "build_id": os.getenv("RENDER_GIT_COMMIT", os.getenv("GIT_COMMIT_SHA", "development")),
     }
     if overrides:
         values.update(overrides)
@@ -65,14 +98,98 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         raise RuntimeError("ENVIRONMENT (or legacy NODE_ENV) must be development, test or production")
     if settings.ai_provider not in {"deepseek", "mock"}:
         raise RuntimeError("AI_PROVIDER must be deepseek or mock")
-    if settings.ai_requests_per_hour < 1:
-        raise RuntimeError("AI_REQUESTS_PER_HOUR must be a positive integer")
-    if settings.environment == "production" and settings.jwt_secret == "local-development-secret-change-me":
-        raise RuntimeError("JWT_SECRET must be set to a unique secret in production")
+    if (
+        min(
+            settings.ai_requests_per_hour,
+            settings.ai_requests_per_ip_per_hour,
+            settings.ai_global_requests_per_hour,
+        )
+        < 1
+    ):
+        raise RuntimeError("AI request budgets must be positive integers")
+    if settings.ai_requests_per_ip_per_hour < settings.ai_requests_per_hour:
+        raise RuntimeError("AI_REQUESTS_PER_IP_PER_HOUR must be at least AI_REQUESTS_PER_HOUR")
+    if min(settings.auth_requests_per_ip_per_hour, settings.auth_global_requests_per_hour) < 1:
+        raise RuntimeError("Auth request budgets must be positive integers")
+    if settings.auth_global_requests_per_hour < settings.auth_requests_per_ip_per_hour:
+        raise RuntimeError("AUTH_GLOBAL_REQUESTS_PER_HOUR must be at least AUTH_REQUESTS_PER_IP_PER_HOUR")
+    if (
+        min(
+            settings.anonymous_profiles_per_ip_per_hour,
+            settings.anonymous_profiles_global_per_hour,
+            settings.max_anonymous_student_profiles,
+        )
+        < 1
+    ):
+        raise RuntimeError("Anonymous profile budgets and capacity must be positive integers")
+    if settings.anonymous_profiles_global_per_hour < settings.anonymous_profiles_per_ip_per_hour:
+        raise RuntimeError("ANONYMOUS_PROFILES_GLOBAL_PER_HOUR must be at least ANONYMOUS_PROFILES_PER_IP_PER_HOUR")
+    if (
+        settings.auth_requests_per_ip_per_hour < settings.anonymous_profiles_per_ip_per_hour
+        or settings.auth_global_requests_per_hour < settings.anonymous_profiles_global_per_hour
+    ):
+        raise RuntimeError("Auth request budgets must be at least the corresponding anonymous profile budgets")
+    if (
+        min(
+            settings.session_requests_per_user_per_hour,
+            settings.session_requests_per_ip_per_hour,
+            settings.session_global_requests_per_hour,
+        )
+        < 1
+    ):
+        raise RuntimeError("Session request budgets must be positive integers")
+    if not (
+        settings.session_global_requests_per_hour
+        >= settings.session_requests_per_ip_per_hour
+        >= settings.session_requests_per_user_per_hour
+    ):
+        raise RuntimeError(
+            "Session request budgets must satisfy SESSION_GLOBAL_REQUESTS_PER_HOUR >= "
+            "SESSION_REQUESTS_PER_IP_PER_HOUR >= SESSION_REQUESTS_PER_USER_PER_HOUR"
+        )
+    if (
+        min(
+            settings.session_starts_per_user_per_hour,
+            settings.session_starts_per_ip_per_hour,
+            settings.session_starts_global_per_hour,
+            settings.max_sessions_per_student,
+            settings.max_total_sessions,
+        )
+        < 1
+    ):
+        raise RuntimeError("Session start budgets and capacity must be positive integers")
+    if not (
+        settings.session_starts_global_per_hour
+        >= settings.session_starts_per_ip_per_hour
+        >= settings.session_starts_per_user_per_hour
+    ):
+        raise RuntimeError(
+            "Session start budgets must satisfy SESSION_STARTS_GLOBAL_PER_HOUR >= "
+            "SESSION_STARTS_PER_IP_PER_HOUR >= SESSION_STARTS_PER_USER_PER_HOUR"
+        )
+    if (
+        settings.session_requests_per_user_per_hour < settings.session_starts_per_user_per_hour
+        or settings.session_requests_per_ip_per_hour < settings.session_starts_per_ip_per_hour
+        or settings.session_global_requests_per_hour < settings.session_starts_global_per_hour
+    ):
+        raise RuntimeError("Session request budgets must be at least the corresponding session start budgets")
+    if settings.max_total_sessions < settings.max_sessions_per_student:
+        raise RuntimeError("MAX_TOTAL_SESSIONS must be at least MAX_SESSIONS_PER_STUDENT")
+    if settings.environment == "production" and (
+        len(settings.jwt_secret) < 32
+        or settings.jwt_secret in {"local-development-secret-change-me", "secret", "changeme"}
+    ):
+        raise RuntimeError("JWT_SECRET must be a unique value containing at least 32 characters in production")
     if settings.environment == "production" and any("localhost" in origin for origin in settings.allowed_origins):
         raise RuntimeError("WEB_ORIGIN must be set to the deployed frontend origin in production")
     if settings.environment == "production" and len(settings.faculty_demo_access_code) < 12:
         raise RuntimeError("FACULTY_DEMO_ACCESS_CODE must contain at least 12 characters in production")
     if settings.environment == "production" and settings.ai_provider == "deepseek" and not settings.deepseek_api_key:
         raise RuntimeError("DEEPSEEK_API_KEY must be configured when AI_PROVIDER=deepseek in production")
+    if settings.environment == "production" and settings.ai_provider != "deepseek":
+        raise RuntimeError("AI_PROVIDER must be deepseek in production")
+    if settings.environment == "production":
+        provider_url = urlparse(settings.deepseek_base_url)
+        if provider_url.scheme != "https" or not provider_url.netloc:
+            raise RuntimeError("DEEPSEEK_BASE_URL must be an HTTPS URL in production")
     return settings

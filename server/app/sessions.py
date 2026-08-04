@@ -24,6 +24,7 @@ RETRYABLE_EVALUATION_ERRORS = {
     "AI_NETWORK_ERROR",
     "AI_PROVIDER_ERROR",
     "AI_EMPTY_RESPONSE",
+    "AI_OUTPUT_VALIDATION",
 }
 
 
@@ -63,6 +64,25 @@ def get_completed_turns(db: Database, session_id: int) -> list[dict[str, Any]]:
     return [turn for turn in get_turns(db, session_id) if turn["status"] == "completed"]
 
 
+def get_scoring_turns(db: Database, session_id: int) -> list[dict[str, Any]]:
+    """Return completed turns plus server-only disclosure evidence for scoring."""
+
+    with db.connection() as connection:
+        rows = connection.execute(
+            """SELECT id,sequence,speaker,content,status,created_at AS createdAt,
+            disclosed_facts_json FROM turns
+            WHERE session_id=? AND status='completed' ORDER BY sequence""",
+            (session_id,),
+        ).fetchall()
+    return [
+        {
+            **{key: value for key, value in dict(row).items() if key != "disclosed_facts_json"},
+            "disclosedFactIds": parse_json(row["disclosed_facts_json"], []),
+        }
+        for row in rows
+    ]
+
+
 def opening_statement(content: dict[str, Any]) -> str:
     direct = content.get("openingStatement") or content.get("opening_statement")
     if isinstance(direct, str):
@@ -75,9 +95,75 @@ def opening_statement(content: dict[str, Any]) -> str:
     return "Hello. I was told you would like to ask me some questions."
 
 
-def create_pending_student_turn(db: Database, session_id: int, message: str) -> tuple[int, int]:
+def completed_message_exchange(
+    db: Database,
+    session_id: int,
+    client_message_id: str | None,
+    message: str,
+) -> dict[str, Any] | None:
+    if client_message_id is None:
+        return None
+    with db.connection() as connection:
+        row = connection.execute(
+            """SELECT student.id AS student_turn_id,student.content AS student_content,
+            student.status AS student_status,patient.id AS patient_turn_id,patient.content AS patient_content
+            FROM turns student
+            LEFT JOIN turns patient ON patient.session_id=student.session_id
+              AND patient.sequence=student.sequence+1 AND patient.speaker='patient'
+              AND patient.status='completed'
+            WHERE student.session_id=? AND student.client_message_id=? AND student.speaker='student'""",
+            (session_id, client_message_id),
+        ).fetchone()
+    if row is None:
+        return None
+    if row["student_content"] != message:
+        raise AppError(409, "MESSAGE_ID_CONFLICT", "This message identifier was already used for different content")
+    if row["student_status"] == "completed" and row["patient_turn_id"] is not None:
+        return dict(row)
+    return None
+
+
+def create_pending_student_turn(
+    db: Database,
+    session_id: int,
+    message: str,
+    client_message_id: str | None = None,
+) -> tuple[int, int]:
     created_at = now_iso()
     with db.connection(write=True) as connection:
+        if client_message_id is not None:
+            existing = connection.execute(
+                """SELECT id,sequence,content,status FROM turns
+                WHERE session_id=? AND client_message_id=? AND speaker='student'""",
+                (session_id, client_message_id),
+            ).fetchone()
+            if existing is not None:
+                if existing["content"] != message:
+                    raise AppError(
+                        409,
+                        "MESSAGE_ID_CONFLICT",
+                        "This message identifier was already used for different content",
+                    )
+                if existing["status"] == "failed":
+                    sequence = int(existing["sequence"])
+                    occupied_later = connection.execute(
+                        """SELECT 1 FROM turns
+                        WHERE session_id=? AND sequence>? LIMIT 1""",
+                        (session_id, sequence),
+                    ).fetchone()
+                    if occupied_later is not None:
+                        latest = connection.execute(
+                            "SELECT MAX(sequence) AS sequence FROM turns WHERE session_id=?",
+                            (session_id,),
+                        ).fetchone()
+                        sequence = int(latest["sequence"] or 0) + 1
+                    connection.execute(
+                        """UPDATE turns SET sequence=?,status='pending',created_at=?,processing_expires_at=NULL
+                        WHERE id=?""",
+                        (sequence, created_at, existing["id"]),
+                    )
+                    return int(existing["id"]), sequence
+                raise AppError(409, "SESSION_BUSY", "This message is already being processed")
         row = connection.execute(
             "SELECT COALESCE(MAX(sequence),0)+1 AS next FROM turns WHERE session_id=?",
             (session_id,),
@@ -85,9 +171,9 @@ def create_pending_student_turn(db: Database, session_id: int, message: str) -> 
         sequence = int(row["next"])
         result = connection.execute(
             """INSERT INTO turns
-            (session_id,sequence,speaker,content,status,disclosed_facts_json,created_at)
-            VALUES (?,?,'student',?,'pending','[]',?)""",
-            (session_id, sequence, message, created_at),
+            (session_id,sequence,speaker,content,status,disclosed_facts_json,client_message_id,created_at)
+            VALUES (?,?,'student',?,'pending','[]',?,?)""",
+            (session_id, sequence, message, client_message_id, created_at),
         )
         turn_id = int(result.lastrowid)
     return turn_id, sequence
@@ -197,6 +283,7 @@ class EvaluationCoordinator:
         self.active_message_sessions: set[int] = set()
         self.active_evaluations: set[int] = set()
         self._evaluation_tasks: dict[int, asyncio.Task[None]] = {}
+        self._evaluation_semaphore = asyncio.Semaphore(2)
         self._message_tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
 
@@ -352,6 +439,28 @@ class EvaluationCoordinator:
             with contextlib.suppress(asyncio.CancelledError):
                 await producer
             self.release_message(session_id)
+
+    async def replay_message_events(
+        self,
+        *,
+        student_turn_id: int,
+        patient_turn_id: int,
+        patient_reply: str,
+    ) -> AsyncIterator[str]:
+        """Replay a committed exchange without issuing another model call."""
+
+        yield self._sse("meta", {"type": "meta", "studentTurnId": student_turn_id, "replayed": True})
+        yield self._sse("delta", {"type": "delta", "text": patient_reply, "delta": patient_reply})
+        yield self._sse(
+            "complete",
+            {
+                "type": "done",
+                "patientTurnId": patient_turn_id,
+                "turnId": str(patient_turn_id),
+                "text": patient_reply,
+                "replayed": True,
+            },
+        )
 
     @staticmethod
     def _sse(event: str, data: dict[str, Any]) -> str:
@@ -547,6 +656,10 @@ class EvaluationCoordinator:
             queue.put_nowait(None)
 
     async def run_evaluation(self, session_id: int) -> None:
+        async with self._evaluation_semaphore:
+            await self._run_evaluation(session_id)
+
+    async def _run_evaluation(self, session_id: int) -> None:
         # Lazy import prevents the result serializer and session helpers from
         # forming an import cycle while keeping one canonical response shape.
         from .result_service import serialize_result
@@ -568,11 +681,13 @@ class EvaluationCoordinator:
                     evaluation_started_at=? WHERE id=?""",
                     (now_iso(), session_id),
                 )
-            transcript = get_completed_turns(self.db, session_id)
+            transcript = get_scoring_turns(self.db, session_id)
             case_content = parse_json(session.get("content_json"), {})
             criteria = parse_json(session.get("criteria_json"), [])
             evaluation_started = time.monotonic()
             evaluated: dict[str, Any] | None = None
+            scoring: dict[str, Any] | None = None
+            valid_student_turns = {int(turn["id"]) for turn in transcript if turn.get("speaker") == "student"}
             for attempt in range(1, 3):
                 attempt_started = time.monotonic()
                 try:
@@ -581,6 +696,13 @@ class EvaluationCoordinator:
                         case_content=case_content,
                         transcript=transcript,
                         criteria=criteria,
+                    )
+                    scoring = calculate_score(
+                        evaluated.get("value"),
+                        criteria,
+                        valid_student_turns,
+                        case_content=case_content,
+                        transcript=transcript,
                     )
                     break
                 except asyncio.CancelledError:
@@ -605,6 +727,7 @@ class EvaluationCoordinator:
                             session_id,
                             error_code,
                         )
+                        await asyncio.sleep(0.5 * attempt)
                         continue
                     with self.db.connection(write=True) as connection:
                         connection.execute(
@@ -621,7 +744,7 @@ class EvaluationCoordinator:
                         error_code,
                     )
                     return
-            if evaluated is None:
+            if evaluated is None or scoring is None:
                 return
 
             meta = evaluated.get("meta") if isinstance(evaluated.get("meta"), dict) else {}
@@ -637,14 +760,6 @@ class EvaluationCoordinator:
                 session_id=session_id,
             )
             try:
-                valid_student_turns = {int(turn["id"]) for turn in transcript if turn.get("speaker") == "student"}
-                scoring = calculate_score(
-                    evaluated.get("value"),
-                    criteria,
-                    valid_student_turns,
-                    case_content=case_content,
-                    transcript=transcript,
-                )
                 evaluated_at = now_iso()
                 with self.db.connection(write=True) as connection:
                     result = connection.execute(

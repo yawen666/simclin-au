@@ -5,7 +5,7 @@ services:
     plan: free
     rootDir: server
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /api/health
     envVars:
       - key: ENVIRONMENT
@@ -32,6 +32,36 @@ services:
         value: deepseek
       - key: AI_REQUESTS_PER_HOUR
         value: 60
+      - key: AI_REQUESTS_PER_IP_PER_HOUR
+        value: 180
+      - key: AI_GLOBAL_REQUESTS_PER_HOUR
+        value: 360
+      - key: AUTH_REQUESTS_PER_IP_PER_HOUR
+        value: 120
+      - key: AUTH_GLOBAL_REQUESTS_PER_HOUR
+        value: 1200
+      - key: ANONYMOUS_PROFILES_PER_IP_PER_HOUR
+        value: 20
+      - key: ANONYMOUS_PROFILES_GLOBAL_PER_HOUR
+        value: 200
+      - key: MAX_ANONYMOUS_STUDENT_PROFILES
+        value: 5000
+      - key: SESSION_REQUESTS_PER_USER_PER_HOUR
+        value: 60
+      - key: SESSION_REQUESTS_PER_IP_PER_HOUR
+        value: 240
+      - key: SESSION_GLOBAL_REQUESTS_PER_HOUR
+        value: 1000
+      - key: SESSION_STARTS_PER_USER_PER_HOUR
+        value: 30
+      - key: SESSION_STARTS_PER_IP_PER_HOUR
+        value: 120
+      - key: SESSION_STARTS_GLOBAL_PER_HOUR
+        value: 500
+      - key: MAX_SESSIONS_PER_STUDENT
+        value: 100
+      - key: MAX_TOTAL_SESSIONS
+        value: 50000
       - key: WEB_ORIGIN
         value: https://simclin-au-web.onrender.com
       - key: LOG_LEVEL

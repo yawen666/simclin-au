@@ -8,6 +8,41 @@ from .utils import parse_json, remove_turn_number_references
 EvidenceStatus = str
 
 
+def serialize_result_summary(row: Any) -> dict[str, Any]:
+    """Return the data-minimised result shape used by lists and dashboards."""
+
+    value = dict(row)
+    ai_score = _number(value.get("ai_score", value.get("score")))
+    teacher_score = value.get("override_score")
+    final_score = _number(teacher_score if teacher_score is not None else ai_score)
+    level = (
+        "Excellent"
+        if final_score >= 85
+        else "Competent"
+        if final_score >= 70
+        else "Developing"
+        if final_score >= 50
+        else "Needs improvement"
+    )
+    return {
+        "id": value["id"],
+        "sessionId": value["session_id"],
+        "caseId": value["case_id"],
+        "caseTitle": value["title"],
+        "specialty": value.get("specialty"),
+        "studentName": value["student_name"],
+        "score": final_score,
+        "aiScore": ai_score,
+        "teacherScore": teacher_score,
+        "adjusted": teacher_score is not None,
+        "overridden": teacher_score is not None,
+        "level": level,
+        "createdAt": value["created_at"],
+        "completedAt": value.get("completed_at"),
+        "durationSeconds": value.get("duration_seconds"),
+    }
+
+
 def red_flag_label_map(content: dict[str, Any]) -> dict[str, str]:
     """Return readable labels for both atomic and grouped red-flag IDs."""
     case_data = content.get("caseData")

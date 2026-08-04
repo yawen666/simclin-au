@@ -266,7 +266,7 @@ def test_scoring_rejects_fractional_scores_and_duplicate_criteria() -> None:
             calculate_score({**base, "criteria": invalid_criteria}, rubric, {10})
 
 
-def test_scoring_ignores_invented_or_explicitly_screened_red_flags() -> None:
+def test_scoring_ignores_invented_red_flags_and_requires_disclosure_evidence() -> None:
     rubric = [
         {
             "id": "safety",
@@ -286,7 +286,7 @@ def test_scoring_ignores_invented_or_explicitly_screened_red_flags() -> None:
     assert invented["score"] == 100
     assert invented["feedback"]["missed_red_flags"] == []
 
-    screened = calculate_score(
+    question_only = calculate_score(
         {**base, "missed_red_flags": ["rf.known"]},
         rubric,
         {10},
@@ -298,8 +298,31 @@ def test_scoring_ignores_invented_or_explicitly_screened_red_flags() -> None:
         },
         transcript=[{"speaker": "student", "content": "Have you had any chest pain?", "status": "completed"}],
     )
-    assert screened["score"] == 100
-    assert screened["feedback"]["missed_red_flags"] == []
+    assert question_only["score"] == 59
+    assert question_only["feedback"]["missed_red_flags"] == ["rf.known"]
+
+    disclosed = calculate_score(
+        {**base, "missed_red_flags": ["rf.known"]},
+        rubric,
+        {10},
+        case_content={
+            "caseData": {
+                "atomicFacts": [{"id": "fact.safety", "triggers": ["chest pain"]}],
+                "redFlags": [{"id": "rf.known", "linkedFactIds": ["fact.safety"]}],
+            }
+        },
+        transcript=[
+            {"speaker": "student", "content": "Have you had any chest pain?", "status": "completed"},
+            {
+                "speaker": "patient",
+                "content": "Yes, I have.",
+                "status": "completed",
+                "disclosedFactIds": ["fact.safety"],
+            },
+        ],
+    )
+    assert disclosed["score"] == 100
+    assert disclosed["feedback"]["missed_red_flags"] == []
 
 
 def test_scoring_preserves_auditable_weighted_rounding() -> None:

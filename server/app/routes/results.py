@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from ..errors import AppError, require_found
-from ..result_service import serialize_result
+from ..result_service import serialize_result, serialize_result_summary
 from ..utils import now_iso
 from ..webdeps import current_user
 
@@ -33,7 +33,10 @@ def list_results(
     request: Request,
     user: Annotated[dict[str, Any], Depends(current_user)],
     case_id: int | None = Query(default=None, alias="caseId", gt=0),
+    query: str | None = Query(default=None, max_length=100),
+    review: Literal["all", "adjusted", "unadjusted"] = Query(default="all"),
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     conditions = ["s.status='completed'"]
     arguments: list[Any] = []
@@ -43,18 +46,44 @@ def list_results(
     if case_id is not None:
         conditions.append("s.case_id=?")
         arguments.append(case_id)
-    arguments.append(limit)
+    search = (query or "").strip()
+    if search:
+        conditions.append(
+            "(instr(lower(COALESCE(s.case_title_snapshot,c.title)),lower(?))>0 "
+            "OR instr(lower(u.display_name),lower(?))>0)"
+        )
+        arguments.extend((search, search))
+    if review == "adjusted":
+        conditions.append("EXISTS (SELECT 1 FROM teacher_overrides o WHERE o.evaluation_id=e.id)")
+    elif review == "unadjusted":
+        conditions.append("NOT EXISTS (SELECT 1 FROM teacher_overrides o WHERE o.evaluation_id=e.id)")
+    page_arguments = [*arguments, limit, offset]
     with request.app.state.db.connection() as connection:
         rows = connection.execute(
             f"""
-            SELECT s.id FROM sessions s
+            SELECT e.id,e.session_id,s.case_id,
+              COALESCE(s.case_title_snapshot,c.title) AS title,
+              COALESCE(s.case_specialty_snapshot,c.specialty) AS specialty,
+              u.display_name AS student_name,e.score AS ai_score,e.created_at,
+              s.completed_at,s.duration_seconds,
+              (SELECT override_score FROM teacher_overrides o
+                WHERE o.evaluation_id=e.id ORDER BY o.id DESC LIMIT 1) AS override_score
+            FROM sessions s JOIN evaluations e ON e.session_id=s.id
+            JOIN cases c ON c.id=s.case_id JOIN users u ON u.id=s.user_id
             WHERE {" AND ".join(conditions)}
-            ORDER BY s.completed_at DESC LIMIT ?
+            ORDER BY s.completed_at DESC LIMIT ? OFFSET ?
             """,
-            arguments,
+            page_arguments,
         ).fetchall()
-    results = [result for row in rows if (result := serialize_result(request.app.state.db, int(row["id"]))) is not None]
-    return {"results": results, "items": results}
+        total = connection.execute(
+            f"""SELECT COUNT(*) AS count FROM sessions s
+            JOIN evaluations e ON e.session_id=s.id
+            JOIN cases c ON c.id=s.case_id JOIN users u ON u.id=s.user_id
+            WHERE {" AND ".join(conditions)}""",
+            arguments,
+        ).fetchone()["count"]
+    results = [serialize_result_summary(row) for row in rows]
+    return {"results": results, "items": results, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{evaluation_id}")

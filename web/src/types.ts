@@ -73,6 +73,7 @@ export interface ClinicalSession {
   completedAt?: string
   durationSeconds?: number
   turns: SessionTurn[]
+  result?: EvaluationResult | null
   score?: number
   resultId?: string
 }
@@ -114,6 +115,8 @@ export interface EvaluationResult {
   criteria: CriterionResult[]
   transcript: SessionTurn[]
   createdAt: string
+  completedAt?: string
+  durationSeconds?: number
   adjusted?: boolean
   teacherScore?: number | null
   teacherComment?: string | null

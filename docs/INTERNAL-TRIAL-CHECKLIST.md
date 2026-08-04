@@ -18,17 +18,17 @@ cp server/.env.example server/.env   # 仅在本地文件不存在时
 npm run dev
 ```
 
-打开 `http://localhost:5173`，API 健康检查为 `http://localhost:4100/api/health`。本地开发使用内置演示身份，不需要密码；生产教师入口必须填写 Render 生成的访问码：
+打开 `http://localhost:5173`，API 健康检查为 `http://localhost:4100/api/health`。学生无需密码，每个浏览器使用相互隔离、可重置的匿名身份；生产教师入口必须填写 Render 生成的访问码：
 
-- Student：Alex Morgan
-- Faculty：Dr Sarah Chen
+- Student：浏览器范围的匿名学生身份
+- Faculty：内置教师身份
 
 真实 DeepSeek 配置只由 Python API 读取 `server/.env`，浏览器、客户端请求、日志与截图都不应出现 API key。自动浏览器回归必须显式使用 `AI_PROVIDER=mock`；试用环境必须使用 `deepseek`。
 
 ## 试用前环境检查
 
 - [ ] `npm run lint:api && npm run build && npm run test && npm run test:e2e` 全部通过。
-- [ ] 真实模型 smoke 和五病例 regression 已通过，输出中无 key、prompt 或患者隐藏事实。
+- [ ] 真实模型 smoke、五病例 regression 和线上 `npm run test:e2e:online:real` 已通过，输出中无 key、token、模型正文、prompt 或患者隐藏事实。
 - [ ] `/api/health` 返回 `status=ok`、`database=ok`、`runtime=python`、`schemaVersion=5` 和 `facultyAccessProtected=true`，不返回任何密钥或访问码内容。
 - [ ] 生产环境缺少 `FACULTY_DEMO_ACCESS_CODE` 或 DeepSeek key 时启动失败；教师访问码只从 Render Environment 页面向授权教师分享。
 - [ ] 学生病例详情响应不包含 `content`、`caseData`、`clinicalTruth`、`atomicFacts`、教师注释或评分材料。
@@ -84,4 +84,5 @@ npm run test
 npm run test:e2e
 npm run test:smoke:real
 npm run test:regression:real
+npm run test:e2e:online:real
 ```

@@ -208,6 +208,17 @@ class Database:
             if self.path != ":memory:":
                 Path(self.path).parent.mkdir(parents=True, exist_ok=True)
             with self.connection(write=True) as connection:
+                migrations_table = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+                ).fetchone()
+                if migrations_table is not None:
+                    newest = connection.execute("SELECT MAX(version) AS version FROM schema_migrations").fetchone()[
+                        "version"
+                    ]
+                    if newest is not None and int(newest) > SCHEMA_VERSION:
+                        raise RuntimeError(
+                            f"Database schema version {newest} is newer than supported version {SCHEMA_VERSION}"
+                        )
                 connection.executescript(DDL)
                 self._ensure_column(connection, "cases", "published_version", "INTEGER")
                 self._ensure_column(connection, "rubrics", "published_version", "INTEGER")

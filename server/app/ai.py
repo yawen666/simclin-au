@@ -419,15 +419,21 @@ def safe_patient_profile(content: dict[str, Any]) -> dict[str, Any]:
         "culturalOrCommunicationNeeds",
         "emotionalState",
         "healthLiteracy",
-        "actorNotes",
     }
     profile = {key: value for key, value in patient.items() if key in allowed}
     case_data = content.get("caseData") or {}
+    unknown_policy = case_data.get("unknownPolicy") if isinstance(case_data.get("unknownPolicy"), dict) else {}
+    default_phrases = [
+        value for value in unknown_policy.get("defaultPhrases", []) if isinstance(value, str) and value.strip()
+    ][:5]
+    actor_rules = [
+        value for value in case_data.get("patientActorRules", []) if isinstance(value, str) and value.strip()
+    ][:12]
     return {
         **profile,
         "openingStatement": content.get("openingStatement"),
-        "unknownPolicy": case_data.get("unknownPolicy"),
-        "patientActorRules": case_data.get("patientActorRules"),
+        "unknownPolicy": {"defaultPhrases": default_phrases},
+        "patientActorRules": actor_rules,
     }
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+import re
 import time
 from typing import Annotated, Any
 
@@ -14,6 +14,8 @@ from ..utils import compact_json, now_iso, parse_json
 from ..webdeps import current_user, enforce_ai_rate_limit, require_faculty
 
 router = APIRouter(prefix="/api/cases", tags=["cases"])
+STRUCTURED_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
+MAX_PUBLISHED_CONTENT_BYTES = 160 * 1024
 
 
 class CaseInput(BaseModel):
@@ -61,7 +63,12 @@ def _role(user: Any) -> str | None:
     return getattr(user, "role", None)
 
 
-def _case_map(row: dict[str, Any], metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+def _case_map(
+    row: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    *,
+    published_projection: bool = False,
+) -> dict[str, Any]:
     source = {**row, **(metadata or {})}
     estimated_minutes = source.get("estimated_minutes")
     return {
@@ -76,10 +83,10 @@ def _case_map(row: dict[str, Any], metadata: dict[str, Any] | None = None) -> di
         "durationMinutes": estimated_minutes,
         "subtitle": source.get("summary"),
         "status": row.get("status"),
-        "version": row.get("current_version"),
+        "version": row.get("published_version") if published_projection else row.get("current_version"),
         "publishedVersion": row.get("published_version"),
         "attempts": int(row.get("attempts") or 0),
-        "updatedAt": row.get("updated_at"),
+        "updatedAt": row.get("published_updated_at") if published_projection else row.get("updated_at"),
     }
 
 
@@ -135,6 +142,13 @@ def _unknown_rubric_red_flag_ids(criteria: list[dict[str, Any]], content: dict[s
 
 
 def _validate_publishable_case(connection: Any, case_id: int, version_number: int) -> int:
+    case_row = require_found(
+        connection.execute(
+            "SELECT title,summary,setting,estimated_minutes FROM cases WHERE id=?",
+            (case_id,),
+        ).fetchone(),
+        "Case",
+    )
     linked = connection.execute(
         """
         SELECT r.id,r.published_version AS publishedVersion
@@ -161,6 +175,8 @@ def _validate_publishable_case(connection: Any, case_id: int, version_number: in
     content = parse_json(version["content_json"], {})
     if not isinstance(content, dict):
         content = {}
+    if len(compact_json(content).encode("utf-8")) > MAX_PUBLISHED_CONTENT_BYTES:
+        raise AppError(409, "CASE_CONTENT_TOO_LARGE", "Published case content must be 160 KB or smaller")
 
     opening_statement = content.get("openingStatement", content.get("opening_statement"))
     patient = content.get("patient")
@@ -168,36 +184,114 @@ def _validate_publishable_case(connection: Any, case_id: int, version_number: in
     patient_age = patient.get("age") if isinstance(patient, dict) else None
     has_patient_identity = (
         isinstance(patient_name, str)
-        and bool(patient_name.strip())
-        and isinstance(patient_age, (int, float))
+        and 1 <= len(patient_name.strip()) <= 120
+        and isinstance(patient_age, int)
         and not isinstance(patient_age, bool)
-        and math.isfinite(patient_age)
-        and patient_age > 0
+        and 1 <= patient_age <= 110
     )
     case_data = content.get("caseData")
+    candidate_instructions = case_data.get("candidateInstructions") if isinstance(case_data, dict) else None
+    presenting_complaint = case_data.get("presentingComplaint") if isinstance(case_data, dict) else None
+    student_brief_valid = (
+        isinstance(case_row["summary"], str)
+        and 1 <= len(case_row["summary"].strip()) <= 1000
+        and isinstance(case_row["setting"], str)
+        and 1 <= len(case_row["setting"].strip()) <= 120
+        and isinstance(case_row["estimated_minutes"], int)
+        and 3 <= case_row["estimated_minutes"] <= 60
+        and isinstance(candidate_instructions, str)
+        and 1 <= len(candidate_instructions.strip()) <= 4000
+        and isinstance(presenting_complaint, str)
+        and 1 <= len(presenting_complaint.strip()) <= 4000
+    )
     facts = case_data.get("atomicFacts") if isinstance(case_data, dict) else None
-    has_usable_fact = isinstance(facts, list) and any(
-        isinstance(fact, dict)
-        and isinstance(fact.get("id"), str)
-        and bool(fact["id"].strip())
-        and isinstance(fact.get("label"), str)
-        and bool(fact["label"].strip())
-        and isinstance(fact.get("value"), str)
-        and bool(fact["value"].strip())
-        for fact in facts
+    fact_ids: list[str] = []
+    facts_valid = isinstance(facts, list) and 1 <= len(facts) <= 80
+    if isinstance(facts, list):
+        for fact in facts:
+            if not isinstance(fact, dict):
+                facts_valid = False
+                continue
+            fact_id = fact.get("id")
+            label = fact.get("label")
+            value = fact.get("value")
+            category = fact.get("category", "")
+            disclosure_level = fact.get("disclosureLevel")
+            triggers = fact.get("triggers", [])
+            fact_valid = (
+                isinstance(fact_id, str)
+                and STRUCTURED_ID_PATTERN.fullmatch(fact_id) is not None
+                and isinstance(label, str)
+                and 1 <= len(label.strip()) <= 200
+                and isinstance(value, str)
+                and 1 <= len(value.strip()) <= 2000
+                and isinstance(category, str)
+                and 1 <= len(category.strip()) <= 80
+                and disclosure_level in {"opening", "broad_question", "direct_question", "specific_question"}
+                and isinstance(triggers, list)
+                and len(triggers) <= 25
+                and all(isinstance(trigger, str) and 1 <= len(trigger.strip()) <= 200 for trigger in triggers)
+            )
+            facts_valid = facts_valid and fact_valid
+            if isinstance(fact_id, str):
+                fact_ids.append(fact_id)
+    facts_valid = facts_valid and len(fact_ids) == len(set(fact_ids))
+
+    red_flags = case_data.get("redFlags", []) if isinstance(case_data, dict) else []
+    red_flag_ids: list[str] = []
+    red_flags_valid = isinstance(red_flags, list) and len(red_flags) <= 40
+    if isinstance(red_flags, list):
+        for flag in red_flags:
+            if not isinstance(flag, dict):
+                red_flags_valid = False
+                continue
+            flag_id = flag.get("id")
+            label = flag.get("label")
+            linked_ids = flag.get("linkedFactIds", [])
+            required_questions = flag.get("requiredQuestions", [])
+            flag_valid = (
+                isinstance(flag_id, str)
+                and STRUCTURED_ID_PATTERN.fullmatch(flag_id) is not None
+                and isinstance(label, str)
+                and 1 <= len(label.strip()) <= 200
+                and isinstance(linked_ids, list)
+                and 1 <= len(linked_ids) <= 20
+                and all(isinstance(value, str) and value in fact_ids for value in linked_ids)
+                and isinstance(required_questions, list)
+                and len(required_questions) <= 25
+                and all(isinstance(value, str) and 1 <= len(value.strip()) <= 200 for value in required_questions)
+            )
+            red_flags_valid = red_flags_valid and flag_valid
+            if isinstance(flag_id, str):
+                red_flag_ids.append(flag_id)
+    red_flags_valid = red_flags_valid and len(red_flag_ids) == len(set(red_flag_ids))
+
+    learning_objectives = case_data.get("learningObjectives", []) if isinstance(case_data, dict) else []
+    actor_rules = case_data.get("patientActorRules", []) if isinstance(case_data, dict) else []
+    supporting_lists_valid = (
+        isinstance(learning_objectives, list)
+        and len(learning_objectives) <= 20
+        and all(isinstance(value, str) and 1 <= len(value.strip()) <= 500 for value in learning_objectives)
+        and isinstance(actor_rules, list)
+        and len(actor_rules) <= 20
+        and all(isinstance(value, str) and 1 <= len(value.strip()) <= 500 for value in actor_rules)
     )
     if (
         not isinstance(opening_statement, str)
-        or not opening_statement.strip()
+        or not 1 <= len(opening_statement.strip()) <= 2000
         or not has_patient_identity
-        or not has_usable_fact
+        or not student_brief_valid
+        or not facts_valid
+        or not red_flags_valid
+        or not supporting_lists_valid
     ):
         raise AppError(
             409,
             "CASE_CONTENT_INCOMPLETE",
             (
-                "Add the patient identity, an opening statement and at least one structured "
-                "patient fact before publishing this case"
+                "Complete the student brief, clinical setting, patient identity, presenting complaint, "
+                "opening statement and at least one structured patient fact before publishing this case; "
+                "fact and red-flag IDs must be unique and structurally valid"
             ),
         )
 
@@ -232,6 +326,67 @@ def _base36(value: int) -> str:
     return encoded
 
 
+def _case_detail(connection: Any, case_id: int, *, faculty: bool) -> dict[str, Any]:
+    """Return the canonical case representation from an existing transaction."""
+    row = require_found(
+        connection.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone(),
+        "Case",
+    )
+    row_dict = dict(row)
+    if not faculty and row_dict["status"] != "published":
+        raise AppError(404, "NOT_FOUND", "Case not found")
+    selected_version = row_dict["current_version"] if faculty else row_dict["published_version"]
+    version = require_found(
+        connection.execute(
+            "SELECT * FROM case_versions WHERE case_id=? AND version=?",
+            (case_id, selected_version),
+        ).fetchone(),
+        "Case version",
+    )
+    rubric_id = version["rubric_id"]
+    if rubric_id is None or faculty:
+        current_link = connection.execute(
+            "SELECT rubric_id FROM case_rubrics WHERE case_id=?",
+            (case_id,),
+        ).fetchone()
+        rubric_id = current_link["rubric_id"] if current_link is not None else rubric_id
+    rubric_row = (
+        connection.execute(
+            "SELECT id,slug,name FROM rubrics WHERE id=?",
+            (rubric_id,),
+        ).fetchone()
+        if rubric_id is not None
+        else None
+    )
+
+    content = parse_json(version["content_json"], {})
+    if not isinstance(content, dict):
+        content = {}
+    case_data = content.get("caseData")
+    patient = content.get("patient")
+    version_metadata = parse_json(version["metadata_json"], {}) if not faculty else None
+    detail = {
+        **_case_map(
+            {**row_dict, "published_updated_at": version["created_at"]},
+            version_metadata,
+            published_projection=not faculty,
+        ),
+        "task": case_data.get("candidateInstructions", "") if isinstance(case_data, dict) else "",
+        "learningObjectives": case_data.get("learningObjectives", []) if isinstance(case_data, dict) else [],
+    }
+    if faculty:
+        detail.update(
+            {
+                "content": content,
+                "caseData": case_data if case_data is not None else content,
+                "patientName": patient.get("name") if isinstance(patient, dict) else None,
+                "patientAge": patient.get("age") if isinstance(patient, dict) else None,
+                "rubric": dict(rubric_row) if rubric_row is not None else None,
+            }
+        )
+    return {**detail, "case": detail}
+
+
 @router.get("")
 def list_cases(
     request: Request,
@@ -244,7 +399,7 @@ def list_cases(
     with db.connection() as connection:
         rows = connection.execute(
             f"""
-            SELECT c.*{",cv.metadata_json" if not faculty else ""},
+            SELECT c.*{",cv.metadata_json,cv.created_at AS published_updated_at" if not faculty else ""},
               (SELECT COUNT(*) FROM sessions s WHERE s.case_id=c.id) AS attempts
             FROM cases c {version_join} {where} ORDER BY c.id
             """
@@ -253,6 +408,7 @@ def list_cases(
         _case_map(
             dict(row),
             parse_json(row["metadata_json"], {}) if not faculty else None,
+            published_projection=not faculty,
         )
         for row in rows
     ]
@@ -268,59 +424,7 @@ def get_case(
     db = _database(request)
     faculty = _role(user) == "faculty"
     with db.connection() as connection:
-        row = require_found(
-            connection.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone(),
-            "Case",
-        )
-        row_dict = dict(row)
-        if not faculty and row_dict["status"] != "published":
-            raise AppError(404, "NOT_FOUND", "Case not found")
-        selected_version = row_dict["current_version"] if faculty else row_dict["published_version"]
-        version = require_found(
-            connection.execute(
-                "SELECT * FROM case_versions WHERE case_id=? AND version=?",
-                (case_id, selected_version),
-            ).fetchone(),
-            "Case version",
-        )
-        rubric_id = version["rubric_id"]
-        if rubric_id is None or faculty:
-            current_link = connection.execute(
-                "SELECT rubric_id FROM case_rubrics WHERE case_id=?",
-                (case_id,),
-            ).fetchone()
-            rubric_id = current_link["rubric_id"] if current_link is not None else rubric_id
-        rubric_row = (
-            connection.execute(
-                "SELECT id,slug,name FROM rubrics WHERE id=?",
-                (rubric_id,),
-            ).fetchone()
-            if rubric_id is not None
-            else None
-        )
-
-    content = parse_json(version["content_json"], {})
-    if not isinstance(content, dict):
-        content = {}
-    case_data = content.get("caseData")
-    patient = content.get("patient")
-    version_metadata = parse_json(version["metadata_json"], {}) if not faculty else None
-    detail = {
-        **_case_map(row_dict, version_metadata),
-        "task": case_data.get("candidateInstructions", "") if isinstance(case_data, dict) else "",
-        "learningObjectives": case_data.get("learningObjectives", []) if isinstance(case_data, dict) else [],
-    }
-    if faculty:
-        detail.update(
-            {
-                "content": content,
-                "caseData": case_data if case_data is not None else content,
-                "patientName": patient.get("name") if isinstance(patient, dict) else None,
-                "patientAge": patient.get("age") if isinstance(patient, dict) else None,
-                "rubric": dict(rubric_row) if rubric_row is not None else None,
-            }
-        )
-    return {**detail, "case": detail}
+        return _case_detail(connection, case_id, faculty=faculty)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -378,7 +482,8 @@ def create_case(
                 "INSERT INTO case_rubrics (case_id,rubric_id) VALUES (?,?)",
                 (case_id, payload.rubricId),
             )
-    return {"id": case_id, "version": 1, "status": "draft"}
+        detail = _case_detail(connection, case_id, faculty=True)
+    return detail
 
 
 @router.patch("/{case_id}")
@@ -396,65 +501,70 @@ def update_case(
         )
         row_dict = dict(row)
         now = now_iso()
-        creates_version = any(
-            value is not None
-            for value in (
-                payload.title,
-                payload.specialty,
-                payload.setting,
-                payload.summary,
-                payload.difficulty,
-                payload.estimatedMinutes,
-                payload.content,
-                payload.rubricId,
+        prior_version = require_found(
+            connection.execute(
+                "SELECT content_json FROM case_versions WHERE case_id=? AND version=?",
+                (case_id, row_dict["current_version"]),
+            ).fetchone(),
+            "Case version",
+        )
+        prior_content = parse_json(prior_version["content_json"], {})
+        if not isinstance(prior_content, dict):
+            prior_content = {}
+        content_source = payload.content if payload.content is not None else prior_content
+        content = {
+            **content_source,
+            "slug": row_dict["slug"],
+            "title": payload.title if payload.title is not None else row_dict["title"],
+        }
+        current_link = connection.execute(
+            "SELECT rubric_id FROM case_rubrics WHERE case_id=?",
+            (case_id,),
+        ).fetchone()
+        current_rubric_id = current_link["rubric_id"] if current_link is not None else None
+        rubric_id = payload.rubricId if payload.rubricId is not None else current_rubric_id
+        metadata = _metadata(
+            row_dict,
+            title=payload.title,
+            specialty=payload.specialty,
+            setting=payload.setting,
+            summary=payload.summary,
+            difficulty=payload.difficulty,
+            estimated_minutes=payload.estimatedMinutes,
+        )
+        metadata_changed = any(
+            metadata[key] != row_dict[column]
+            for key, column in (
+                ("title", "title"),
+                ("specialty", "specialty"),
+                ("setting", "setting"),
+                ("summary", "summary"),
+                ("difficulty", "difficulty"),
+                ("estimated_minutes", "estimated_minutes"),
             )
         )
+        content_changed = (payload.content is not None or payload.title is not None) and content != prior_content
+        rubric_changed = payload.rubricId is not None and payload.rubricId != current_rubric_id
+        creates_version = metadata_changed or content_changed or rubric_changed
         next_version = int(row_dict["current_version"]) + (1 if creates_version else 0)
-        connection.execute(
-            """
-            UPDATE cases
-            SET title=?,specialty=?,setting=?,summary=?,difficulty=?,estimated_minutes=?,current_version=?,updated_at=?
-            WHERE id=?
-            """,
-            (
-                payload.title if payload.title is not None else row_dict["title"],
-                payload.specialty if payload.specialty is not None else row_dict["specialty"],
-                payload.setting if payload.setting is not None else row_dict["setting"],
-                payload.summary if payload.summary is not None else row_dict["summary"],
-                payload.difficulty if payload.difficulty is not None else row_dict["difficulty"],
-                payload.estimatedMinutes if payload.estimatedMinutes is not None else row_dict["estimated_minutes"],
-                next_version,
-                now,
-                case_id,
-            ),
-        )
         if creates_version:
-            if payload.content is None:
-                prior_version = require_found(
-                    connection.execute(
-                        "SELECT content_json FROM case_versions WHERE case_id=? AND version=?",
-                        (case_id, row_dict["current_version"]),
-                    ).fetchone(),
-                    "Case version",
-                )
-                content_source = parse_json(prior_version["content_json"], {})
-            else:
-                content_source = payload.content
-            if not isinstance(content_source, dict):
-                content_source = {}
-            content = {
-                **content_source,
-                "slug": row_dict["slug"],
-                "title": payload.title if payload.title is not None else row_dict["title"],
-            }
-            current_link = connection.execute(
-                "SELECT rubric_id FROM case_rubrics WHERE case_id=?",
-                (case_id,),
-            ).fetchone()
-            rubric_id = (
-                payload.rubricId
-                if payload.rubricId is not None
-                else (current_link["rubric_id"] if current_link is not None else None)
+            connection.execute(
+                """
+                UPDATE cases
+                SET title=?,specialty=?,setting=?,summary=?,difficulty=?,estimated_minutes=?,current_version=?,updated_at=?
+                WHERE id=?
+                """,
+                (
+                    metadata["title"],
+                    metadata["specialty"],
+                    metadata["setting"],
+                    metadata["summary"],
+                    metadata["difficulty"],
+                    metadata["estimated_minutes"],
+                    next_version,
+                    now,
+                    case_id,
+                ),
             )
             connection.execute(
                 """INSERT INTO case_versions
@@ -464,17 +574,7 @@ def update_case(
                     next_version,
                     compact_json(content),
                     rubric_id,
-                    compact_json(
-                        _metadata(
-                            row_dict,
-                            title=payload.title,
-                            specialty=payload.specialty,
-                            setting=payload.setting,
-                            summary=payload.summary,
-                            difficulty=payload.difficulty,
-                            estimated_minutes=payload.estimatedMinutes,
-                        )
-                    ),
+                    compact_json(metadata),
                     now,
                 ),
             )
@@ -486,7 +586,8 @@ def update_case(
                 """,
                 (case_id, payload.rubricId),
             )
-    return {"id": case_id, "version": next_version}
+        detail = _case_detail(connection, case_id, faculty=True)
+    return detail
 
 
 @router.post("/{case_id}/publish")
@@ -525,7 +626,8 @@ def publish_case(
             """,
             (now, rubric_id, compact_json(_metadata(current)), case_id, row["current_version"]),
         )
-    return {"id": case_id, "status": "published"}
+        detail = _case_detail(connection, case_id, faculty=True)
+    return detail
 
 
 @router.post("/{case_id}/archive")

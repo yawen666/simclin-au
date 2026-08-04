@@ -29,11 +29,12 @@ function messageTime(value?: string) {
 </script>
 
 <template>
-  <div class="transcript-list">
+  <div class="transcript-list" data-no-translate>
     <article
       v-for="turn in turns"
       :id="`${idPrefix}-${turn.id}`"
       :key="turn.id"
+      tabindex="-1"
       :class="[
         'transcript-turn',
         `transcript-turn--${turn.role}`,
@@ -45,7 +46,7 @@ function messageTime(value?: string) {
         <b>{{ roleLabel(turn) }}</b>
         <time v-if="messageTime(turn.createdAt)" :datetime="turn.createdAt">{{ messageTime(turn.createdAt) }}</time>
       </header>
-      <p>{{ turn.content }}</p>
+      <p lang="en-AU" data-no-translate>{{ turn.content }}</p>
     </article>
   </div>
 </template>

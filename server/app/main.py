@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .ai import AiProvider, DeepSeekProvider, MockAiProvider
@@ -88,15 +87,8 @@ def create_app(
     application.state.ai = provider
     application.state.upload_dir = str(upload_dir)
     application.state.rate_limiter = SlidingWindowRateLimiter()
+    application.state.faculty_auth_limiter = SlidingWindowRateLimiter(window_seconds=15 * 60)
     application.state.evaluations = EvaluationCoordinator(db, provider, resolved_settings)
-
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=resolved_settings.allowed_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
-    )
 
     @application.middleware("http")
     async def enforce_body_limit(request: Request, call_next):
@@ -130,6 +122,27 @@ def create_app(
             chunks.append(chunk)
         request._body = b"".join(chunks)  # noqa: SLF001 - Starlette replay buffer for downstream parsers.
         return await call_next(request)
+
+    @application.middleware("http")
+    async def secure_api_responses(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.url.path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+    # Register CORS last so it wraps early body-limit and security responses as
+    # well as ordinary route handlers.
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=resolved_settings.allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
+    )
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -192,6 +205,7 @@ def create_app(
             "version": application.version,
             "runtime": "python",
             "schemaVersion": SCHEMA_VERSION,
+            "buildId": resolved_settings.build_id[:12],
             "database": "ok",
             "aiConfigured": bool(resolved_settings.deepseek_api_key),
             "aiProvider": resolved_settings.ai_provider,
@@ -207,7 +221,6 @@ def create_app(
     application.include_router(history_router)
     application.include_router(insights_router)
     application.include_router(uploads_router)
-    application.mount("/uploads", StaticFiles(directory=str(upload_dir), check_dir=False), name="uploads")
     return application
 
 

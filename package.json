@@ -14,7 +14,8 @@
     "test:e2e": "playwright test",
     "test:all": "npm run lint:api && npm run test && npm run build && npm run test:e2e",
     "test:smoke:real": "PYTHONPATH=server server/.venv/bin/python -m app.real_smoke",
-    "test:regression:real": "env -u SIMCLIN_REAL_CASE_SLUG PYTHONPATH=server server/.venv/bin/python -m app.real_regression"
+    "test:regression:real": "env -u SIMCLIN_REAL_CASE_SLUG PYTHONPATH=server server/.venv/bin/python -m app.real_regression",
+    "test:e2e:online:real": "PYTHONPATH=server server/.venv/bin/python -m app.online_e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

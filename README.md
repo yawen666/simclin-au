@@ -1,6 +1,6 @@
 # SimClin AU 1.0
 
-SimClin AU is a local, English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop for built-in student and faculty identities without registration; hosted faculty access is protected by a deployment-only access code.
+SimClin AU is an English-first formative history-taking product with a Chinese/English interface option for Australian undergraduate medical education. It provides a complete demonstration loop without registration: each browser receives an isolated anonymous student profile, while hosted faculty access is protected by a deployment-only access code.
 
 ## Included in 1.0
 
@@ -43,16 +43,16 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). The API health endpoint is [http://localhost:4100/api/health](http://localhost:4100/api/health).
 
-Choose either built-in role on the landing page:
+Choose either workspace on the landing page:
 
-- Student: Alex Morgan
-- Faculty: Dr Sarah Chen
+- Student: a stable anonymous profile scoped to this browser, with an explicit reset control
+- Faculty: the built-in educator profile (a deployment access code is required in production)
 
 Data persists in `server/data/simclin-au.db`. Startup seeding is idempotent and does not modify faculty-created drafts. The API runs as one Uvicorn worker: this is deliberate because SQLite and the in-process message/evaluation concurrency guards are designed for a single application process.
 
 Completing a consultation queues its evaluation and immediately returns an `evaluating` state. Evaluation state is stored in SQLite; transient provider failures are retried once, and work left `queued` or `running` by a process restart is reclaimed at the next API startup. Students can leave the page and retrieve the result later from Practice history.
 
-The hosted faculty identity is protected by a deployment-only access code, while patient, evaluator and faculty-preview model calls share a configurable per-client hourly budget. Student case responses expose only the student brief and learning objectives; hidden patient facts and assessment content remain server-side.
+The hosted faculty identity is protected by a deployment-only access code, while patient, evaluator and faculty-preview workflows share configurable per-user, per-IP and process-wide hourly budgets. Student case responses expose only the student brief and learning objectives; hidden patient facts and assessment content remain server-side.
 
 ## Verification commands
 
@@ -63,9 +63,10 @@ npm run test
 npm run test:e2e
 npm run test:smoke:real
 npm run test:regression:real
+npm run test:e2e:online:real
 ```
 
-`npm run test` runs the Python API tests and Vue unit tests. The browser suite uses an isolated temporary SQLite database and the explicit deterministic AI provider. The real-provider smoke test separately verifies authentication, a streamed patient response, background evaluation and structured scoring against the configured model. The real-provider regression repeats the actor/evaluator checks across all five supplied cases. Real-provider commands read `server/.env` without printing the key.
+`npm run test` runs the Python API tests and Vue unit tests. The browser suite uses an isolated temporary SQLite database and the explicit deterministic AI provider. The local real-provider smoke and regression commands read `server/.env` and verify the configured model across all five supplied cases. The online command targets the deployed Render API by default and performs a five-case synthetic end-to-end run through the real provider without reading a local model key. All real-provider commands emit only sanitised status fields; they never print the provider key, token, prompts, hidden facts or AI response text.
 
 ## Open-source and free deployment
 

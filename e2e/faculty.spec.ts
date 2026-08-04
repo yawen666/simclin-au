@@ -24,12 +24,25 @@ test.describe('faculty workspace', () => {
     await field('Presenting complaint').locator('textarea').fill('Intermittent racing heartbeat for three days, with one brief episode of light-headedness.')
     await field('Opening statement').locator('textarea').fill('My heart has been racing on and off, and it is starting to worry me.')
     await field('Patient fact').locator('textarea').fill('The racing heartbeat starts suddenly, lasts around five minutes and has happened four times in three days.')
+    const factCard = page.locator('.fact-card').first()
+    const factId = factCard.locator('.field').filter({ has: page.getByText('Stable fact ID', { exact: true }) }).locator('input')
+    await factId.fill('  palpitations.onset  ')
+    await page.getByRole('button', { name: 'Add red flag' }).click()
+    const redFlagCard = page.locator('.red-flag-card').first()
+    const redFlagId = redFlagCard.locator('.field').filter({ has: page.getByText('Red flag ID', { exact: true }) }).locator('input')
+    await redFlagId.fill('  palpitations.safety.ongoing  ')
+    await redFlagCard.locator('.field').filter({ has: page.getByText('Label', { exact: true }) }).locator('input').fill('Ongoing concerning palpitations')
+    await redFlagCard.locator('.fact-links input[type="checkbox"]').check()
+    await page.getByRole('button', { name: 'Add objective' }).click()
     await page.getByLabel('Learning objective 1').fill('Elicit the timing, triggers and associated symptoms of palpitations.')
     await page.locator('.editor-side select').selectOption({ label: `${rubric.name} · v1` })
 
     await page.getByRole('button', { name: 'Save draft' }).click()
     await expect(page.getByText('Draft saved.')).toBeVisible()
     await expect(page).toHaveURL(/\/faculty\/cases\/\d+\/edit/)
+    await expect(factId).toHaveValue('palpitations.onset')
+    await expect(redFlagId).toHaveValue('palpitations.safety.ongoing')
+    await expect(redFlagCard.locator('.fact-links input[type="checkbox"]')).toBeChecked()
 
     await page.getByRole('link', { name: 'Preview' }).click()
     await expect(page).toHaveURL(/\/faculty\/cases\/\d+\/preview/)
@@ -57,6 +70,10 @@ test.describe('faculty workspace', () => {
     await expect(page.getByText('Case copied as a new draft.')).toBeVisible()
     await expect(page.getByRole('row').filter({ hasText: `${title} (copy)` })).toContainText(/draft/i)
 
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('confirm')
+      await dialog.accept()
+    })
     await row.getByTitle('Archive').click()
     await expect(page.getByText('Case archived successfully.')).toBeVisible()
     await expect(page.getByRole('row').filter({ hasText: title }).filter({ hasNotText: '(copy)' })).toContainText(/archived/i)
@@ -70,7 +87,7 @@ test.describe('faculty workspace', () => {
     await expect(page.getByRole('heading', { name: 'Student results' })).toBeVisible()
     const resultRow = page.getByRole('row').filter({ hasText: result.caseTitle }).first()
     await expect(resultRow).toContainText(`${result.score}`)
-    await resultRow.getByRole('link', { name: result.caseTitle }).click()
+    await resultRow.getByRole('link', { name: result.caseTitle, exact: true }).click()
 
     await expect(page).toHaveURL(new RegExp(`/faculty/results/${result.id}$`))
     await expect(page.getByRole('heading', { name: result.caseTitle })).toBeVisible()
@@ -122,12 +139,26 @@ test.describe('faculty workspace', () => {
     await page.getByRole('button', { name: 'New rubric' }).click()
     await expect(page.locator('.criterion')).toHaveCount(1)
     await page.locator('.rubric-head input').first().fill(newRubricName)
-    await page.locator('.criterion').first().locator('input.input').first().fill('Patient-centred communication')
+    const newCriterion = page.locator('.criterion').first()
+    await newCriterion.locator('input.input').first().fill('Patient-centred communication')
+    await newCriterion.locator('textarea').fill('Uses clear, respectful and patient-centred communication throughout the consultation.')
+    for (const [score, description] of [
+      [0, 'No patient-centred communication behaviour is demonstrated.'],
+      [1, 'Some respectful communication is demonstrated, with major omissions.'],
+      [2, 'Communication is mostly respectful and clear, with minor omissions.'],
+      [3, 'Communication is consistently clear, respectful and patient-centred.'],
+    ] as const) {
+      await newCriterion.getByRole('textbox', { name: `Score ${score} Description` }).fill(description)
+    }
     await page.getByRole('button', { name: 'Create rubric' }).click()
     await expect(page.getByText('Rubric created.')).toBeVisible()
 
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
     await expect(page.getByText('Rubric published successfully.')).toBeVisible()
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('confirm')
+      await dialog.accept()
+    })
     await page.getByRole('button', { name: 'Archive', exact: true }).click()
     await expect(page.getByText('Rubric archived successfully.')).toBeVisible()
   })

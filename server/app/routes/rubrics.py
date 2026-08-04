@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..database import Database
 from ..errors import AppError, require_found
 from ..utils import compact_json, now_iso, parse_json
-from ..webdeps import current_user, require_faculty
-from .cases import _unknown_rubric_red_flag_ids
+from ..webdeps import require_faculty
+from .cases import STRUCTURED_ID_PATTERN, _unknown_rubric_red_flag_ids
 
 router = APIRouter(prefix="/api/rubrics", tags=["rubrics"])
 
@@ -77,12 +77,6 @@ def _database(request: Request) -> Database:
     return request.app.state.db
 
 
-def _role(user: Any) -> str | None:
-    if isinstance(user, dict):
-        return user.get("role")
-    return getattr(user, "role", None)
-
-
 def _validate_weights(criteria: list[dict[str, Any]]) -> None:
     total = sum(float(item["weight"]) for item in criteria)
     if abs(total - 100) > 0.001:
@@ -90,6 +84,82 @@ def _validate_weights(criteria: list[dict[str, Any]]) -> None:
             400,
             "INVALID_RUBRIC_WEIGHT",
             "Rubric criterion weights must total 100",
+        )
+
+
+def _anchors_are_complete(value: Any) -> bool:
+    if isinstance(value, dict):
+        if {str(key) for key in value} != {"0", "1", "2", "3"}:
+            return False
+        return all(
+            isinstance(description, str) and 1 <= len(description.strip()) <= 1000 for description in value.values()
+        )
+    if not isinstance(value, list) or len(value) != 4:
+        return False
+    scores: list[int] = []
+    for anchor in value:
+        if not isinstance(anchor, dict):
+            return False
+        score = anchor.get("score")
+        label = anchor.get("label")
+        description = anchor.get("description")
+        if (
+            not isinstance(score, int)
+            or isinstance(score, bool)
+            or score not in {0, 1, 2, 3}
+            or not isinstance(label, str)
+            or not 1 <= len(label.strip()) <= 120
+            or not isinstance(description, str)
+            or not 1 <= len(description.strip()) <= 1000
+        ):
+            return False
+        scores.append(score)
+    return set(scores) == {0, 1, 2, 3}
+
+
+def _validate_publishable_criteria(criteria: list[dict[str, Any]]) -> None:
+    ids: list[str] = []
+    valid = 1 <= len(criteria) <= 20
+    for criterion in criteria:
+        if not isinstance(criterion, dict):
+            valid = False
+            continue
+        criterion_id = criterion.get("id")
+        label = criterion.get("label", criterion.get("name"))
+        description = criterion.get("description")
+        red_flag_ids = criterion.get("redFlagIds", [])
+        red_flag_ids_valid = (
+            isinstance(red_flag_ids, list)
+            and len(red_flag_ids) <= 40
+            and all(
+                isinstance(value, str) and STRUCTURED_ID_PATTERN.fullmatch(value) is not None for value in red_flag_ids
+            )
+        )
+        if red_flag_ids_valid:
+            red_flag_ids_valid = len(red_flag_ids) == len(set(red_flag_ids))
+        item_valid = (
+            isinstance(criterion_id, str)
+            and STRUCTURED_ID_PATTERN.fullmatch(criterion_id) is not None
+            and isinstance(label, str)
+            and 1 <= len(label.strip()) <= 160
+            and isinstance(description, str)
+            and 1 <= len(description.strip()) <= 1000
+            and red_flag_ids_valid
+            and _anchors_are_complete(criterion.get("anchors"))
+        )
+        valid = valid and item_valid
+        if isinstance(criterion_id, str):
+            ids.append(criterion_id)
+    valid = valid and len(ids) == len(set(ids))
+    try:
+        _validate_weights(criteria)
+    except (AppError, KeyError, TypeError, ValueError):
+        valid = False
+    if not valid:
+        raise AppError(
+            409,
+            "RUBRIC_CONTENT_INCOMPLETE",
+            "Complete every domain, weight and behaviour anchor (scores 0 to 3) before publishing this rubric",
         )
 
 
@@ -133,18 +203,16 @@ def _client_criteria(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
 @router.get("")
 def list_rubrics(
     request: Request,
-    user: Annotated[Any, Depends(current_user)],
+    _faculty: Annotated[Any, Depends(require_faculty)],
 ) -> dict[str, Any]:
     db = _database(request)
-    where = "" if _role(user) == "faculty" else "WHERE status='published'"
     rubrics: list[dict[str, Any]] = []
     with db.connection() as connection:
-        rows = connection.execute(f"SELECT * FROM rubrics {where} ORDER BY id").fetchall()
+        rows = connection.execute("SELECT * FROM rubrics ORDER BY id").fetchall()
         for row in rows:
-            selected_version = row["current_version"] if _role(user) == "faculty" else row["published_version"]
             version = connection.execute(
                 "SELECT criteria_json FROM rubric_versions WHERE rubric_id=? AND version=?",
-                (row["id"], selected_version),
+                (row["id"], row["current_version"]),
             ).fetchone()
             criteria = parse_json(version["criteria_json"], []) if version is not None else []
             if not isinstance(criteria, list):
@@ -169,7 +237,7 @@ def list_rubrics(
 def get_rubric(
     request: Request,
     rubric_id: Annotated[int, Path(gt=0)],
-    user: Annotated[Any, Depends(current_user)],
+    _faculty: Annotated[Any, Depends(require_faculty)],
 ) -> dict[str, Any]:
     db = _database(request)
     with db.connection() as connection:
@@ -177,13 +245,10 @@ def get_rubric(
             connection.execute("SELECT * FROM rubrics WHERE id=?", (rubric_id,)).fetchone(),
             "Rubric",
         )
-        if _role(user) != "faculty" and row["status"] != "published":
-            raise AppError(404, "NOT_FOUND", "Rubric not found")
-        selected_version = row["current_version"] if _role(user) == "faculty" else row["published_version"]
         version = require_found(
             connection.execute(
                 "SELECT * FROM rubric_versions WHERE rubric_id=? AND version=?",
-                (rubric_id, selected_version),
+                (rubric_id, row["current_version"]),
             ).fetchone(),
             "Rubric version",
         )
@@ -287,13 +352,13 @@ def publish_rubric(
         criteria = parse_json(rubric_version["criteria_json"], [])
         if not isinstance(criteria, list):
             criteria = []
+        _validate_publishable_criteria(criteria)
         linked_cases = connection.execute(
             """
             SELECT c.title,cv.content_json AS contentJson
-            FROM case_rubrics cr
-            JOIN cases c ON c.id=cr.case_id
+            FROM cases c
             JOIN case_versions cv ON cv.case_id=c.id AND cv.version=c.published_version
-            WHERE cr.rubric_id=? AND c.status='published'
+            WHERE cv.rubric_id=? AND c.status='published'
             """,
             (rubric_id,),
         ).fetchall()

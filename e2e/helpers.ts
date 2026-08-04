@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
 
 export const API_BASE = 'http://127.0.0.1:4000/api'
+export const FACULTY_ACCESS_CODE = 'simclin-e2e-faculty-code'
 
 export async function expectApiOk(response: APIResponse, label: string): Promise<void> {
   if (response.ok()) return
@@ -8,7 +9,14 @@ export async function expectApiOk(response: APIResponse, label: string): Promise
 }
 
 export async function apiLogin(request: APIRequestContext, role: 'student' | 'faculty') {
-  const response = await request.post(`${API_BASE}/auth/demo`, { data: { role } })
+  const response = await request.post(`${API_BASE}/auth/demo`, {
+    data: {
+      role,
+      ...(role === 'faculty'
+        ? { accessCode: FACULTY_ACCESS_CODE }
+        : { visitorId: `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}` }),
+    },
+  })
   await expectApiOk(response, `${role} demo login`)
   return response.json() as Promise<{ token: string; user: { id: number; name: string; role: string } }>
 }
@@ -71,6 +79,12 @@ export async function createPublishedGeneralRubric(request: APIRequestContext) {
         weight: 100,
         critical: false,
         redFlagIds: [],
+        anchors: [
+          { score: 0, label: 'Not demonstrated', description: 'No relevant history-taking behaviour is demonstrated.' },
+          { score: 1, label: 'Emerging', description: 'Some relevant questions are asked, with major omissions.' },
+          { score: 2, label: 'Developing', description: 'Most relevant questions are asked, with minor omissions.' },
+          { score: 3, label: 'Proficient', description: 'A focused and patient-centred history is elicited comprehensively.' },
+        ],
       }],
     },
   })
@@ -84,6 +98,7 @@ export async function createPublishedGeneralRubric(request: APIRequestContext) {
 export async function enterWorkspace(page: Page, role: 'student' | 'faculty') {
   await page.goto('/')
   const label = role === 'student' ? /Enter as Student/i : /Enter as Faculty/i
+  if (role === 'faculty') await page.getByLabel('Faculty access code').fill(FACULTY_ACCESS_CODE)
   await page.getByRole('button', { name: label }).click()
   await expect(page).toHaveURL(new RegExp(`/${role}/?$`))
 }

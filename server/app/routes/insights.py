@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 
-from ..result_service import red_flag_label_map, serialize_result
+from ..result_service import red_flag_label_map, serialize_result_summary
 from ..utils import parse_json
 from ..webdeps import require_faculty
 
@@ -89,8 +89,17 @@ def insights(
             JOIN sessions s ON s.id=e.session_id JOIN case_versions cv ON cv.id=s.case_version_id
             """
         ).fetchall()
-        recent_sessions = connection.execute(
-            "SELECT id FROM sessions WHERE status='completed' ORDER BY completed_at DESC LIMIT 5"
+        recent_results_rows = connection.execute(
+            """SELECT e.id,e.session_id,s.case_id,
+              COALESCE(s.case_title_snapshot,c.title) AS title,
+              COALESCE(s.case_specialty_snapshot,c.specialty) AS specialty,
+              u.display_name AS student_name,e.score AS ai_score,e.created_at,
+              s.completed_at,s.duration_seconds,
+              (SELECT override_score FROM teacher_overrides o
+                WHERE o.evaluation_id=e.id ORDER BY o.id DESC LIMIT 1) AS override_score
+            FROM evaluations e JOIN sessions s ON s.id=e.session_id
+            JOIN cases c ON c.id=s.case_id JOIN users u ON u.id=s.user_id
+            ORDER BY s.completed_at DESC LIMIT 5"""
         ).fetchall()
         model_summary = dict(
             connection.execute(
@@ -214,7 +223,7 @@ def insights(
         key=lambda item: item["count"],
         reverse=True,
     )
-    recent_results = [result for row in recent_sessions if (result := serialize_result(db, int(row["id"]))) is not None]
+    recent_results = [serialize_result_summary(row) for row in recent_results_rows]
 
     total_attempts = int(attempt_summary.get("totalAttempts") or 0)
     completed = int(attempt_summary.get("completed") or 0)

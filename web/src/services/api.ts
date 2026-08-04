@@ -2,6 +2,26 @@ import axios, { type AxiosInstance } from 'axios'
 import type { AuthResponse, ClinicalCase, ClinicalSession, EvaluationResult, Insights, Role, Rubric, RubricCriterion } from '@/types'
 
 const TOKEN_KEY = 'simclin-demo-token'
+const USER_KEY = 'simclin-demo-user'
+const VISITOR_KEY = 'simclin-visitor-id'
+export const AUTH_EXPIRED_EVENT = 'simclin:auth-expired'
+
+function visitorId() {
+  const stored = localStorage.getItem(VISITOR_KEY)
+  if (stored && /^[A-Za-z0-9_-]{12,128}$/.test(stored)) return stored
+  if (stored) localStorage.removeItem(VISITOR_KEY)
+  const created = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+  localStorage.setItem(VISITOR_KEY, created)
+  return created
+}
+
+export function expireAuthSession() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT))
+}
 
 class ApiClient {
   readonly http: AxiosInstance
@@ -12,12 +32,22 @@ class ApiClient {
       if (token) config.headers.Authorization = `Bearer ${token}`
       return config
     })
+    this.http.interceptors.response.use(
+      response => response,
+      (error) => {
+        if (axios.isAxiosError(error) && error.response?.status === 401 && localStorage.getItem(TOKEN_KEY)) {
+          expireAuthSession()
+        }
+        return Promise.reject(error)
+      },
+    )
   }
   setToken(token: string) { localStorage.setItem(TOKEN_KEY, token) }
   clearToken() { localStorage.removeItem(TOKEN_KEY) }
+  resetVisitor() { localStorage.removeItem(VISITOR_KEY) }
   getToken() { return localStorage.getItem(TOKEN_KEY) }
 
-  async demoLogin(role: Role, accessCode?: string) { const { data } = await this.http.post<AuthResponse>('/auth/demo', { role, ...(accessCode ? { accessCode } : {}) }); this.setToken(data.token); return data }
+  async demoLogin(role: Role, accessCode?: string) { const { data } = await this.http.post<AuthResponse>('/auth/demo', { role, ...(role === 'student' ? { visitorId: visitorId() } : {}), ...(accessCode ? { accessCode } : {}) }); this.setToken(data.token); return data }
   async getCases(params?: { status?: string }) {
     const data = (await this.http.get<{ cases?: ClinicalCase[]; items?: ClinicalCase[] }>('/cases', { params })).data
     const cases = data.cases ?? data.items ?? []
@@ -28,14 +58,17 @@ class ApiClient {
     return normaliseCase(data.case ?? data)
   }
   async createCase(payload: Partial<ClinicalCase>) {
-    const response = (await this.http.post<ClinicalCase>('/cases', casePayload(payload))).data
-    return normaliseCase({ ...payload, ...response } as ClinicalCase)
+    const data = (await this.http.post<ClinicalCase & { case?: ClinicalCase }>('/cases', casePayload(payload))).data
+    return normaliseCase(data.case ?? data)
   }
   async updateCase(id: string, payload: Partial<ClinicalCase>) {
-    await this.http.patch(`/cases/${id}`, casePayload(payload, false))
-    return this.getCase(id)
+    const data = (await this.http.patch<ClinicalCase & { case?: ClinicalCase }>(`/cases/${id}`, casePayload(payload, false))).data
+    return normaliseCase(data.case ?? data)
   }
-  async caseAction(id: string, action: 'publish' | 'archive' | 'duplicate' | 'preview') { return (await this.http.post<ClinicalCase>(`/cases/${id}/${action}`)).data }
+  async caseAction(id: string, action: 'publish' | 'archive' | 'duplicate' | 'preview') {
+    const data = (await this.http.post<ClinicalCase & { case?: ClinicalCase }>(`/cases/${id}/${action}`)).data
+    return action === 'publish' ? normaliseCase(data.case ?? data) : data
+  }
   async previewCaseResponse(id: string, message: string) {
     return (await this.http.post<{ text: string; disclosedFactIds: string[]; permittedFacts: Array<{ id?: string; label?: string; value?: string }>; model: string }>(`/cases/${id}/preview/respond`, { message }, { timeout: 90_000 })).data
   }
@@ -62,7 +95,11 @@ class ApiClient {
     return { ...data, resultId: data.resultId ?? String(data.result?.id ?? '') }
   }
 
-  async getResults() { return (await this.http.get<{ items: EvaluationResult[] } | EvaluationResult[]>('/results')).data }
+  async getResults(params?: { limit?: number; offset?: number; query?: string; review?: 'all' | 'adjusted' | 'unadjusted' }) {
+    const data = (await this.http.get<{ items: EvaluationResult[]; total?: number; limit?: number; offset?: number } | EvaluationResult[]>('/results', { params })).data
+    if (Array.isArray(data)) return { items: data, total: data.length, limit: data.length, offset: 0 }
+    return { ...data, total: data.total ?? data.items.length, limit: data.limit ?? data.items.length, offset: data.offset ?? 0 }
+  }
   async getResult(id: string) {
     const data = (await this.http.get<EvaluationResult & { result?: EvaluationResult; turns?: Array<EvaluationResult['transcript'][number] & { speaker?: 'student' | 'patient' }> }>(`/results/${id}`)).data
     const result = data.result ?? data
@@ -112,16 +149,17 @@ function casePayload(value: Partial<ClinicalCase>, includeSlug = true) {
       candidateInstructions: value.task,
       learningObjectives: value.learningObjectives ?? [],
       presentingComplaint: value.presentingComplaint,
-      atomicFacts: (value.atomicFacts ?? []).filter((fact) => fact.label.trim() && fact.value.trim()).map((fact, index) => ({
+      atomicFacts: (value.atomicFacts ?? []).map((fact, index) => ({
         ...fact,
-        id: fact.id || `${slugify(value.title || 'case')}.fact.${String(index + 1).padStart(2, '0')}`,
+        id: fact.id.trim() || `${slugify(value.title || 'case')}.fact.${String(index + 1).padStart(2, '0')}`,
       })),
-      redFlags: (value.redFlags ?? []).filter((flag) => flag.id.trim() && flag.label.trim()).map((flag) => ({
+      redFlags: (value.redFlags ?? []).map((flag) => ({
         ...flag,
-        linkedFactIds: (flag.linkedFactIds ?? []).filter(Boolean),
+        id: flag.id.trim(),
+        linkedFactIds: [...new Set((flag.linkedFactIds ?? []).map(id => id.trim()).filter(Boolean))],
       })),
       unknownPolicy: value.unknownPolicy ?? existingCaseData.unknownPolicy,
-      patientActorRules: (value.patientActorRules ?? (Array.isArray(existingCaseData.patientActorRules) ? existingCaseData.patientActorRules as string[] : [])).filter(Boolean),
+      patientActorRules: value.patientActorRules ?? (Array.isArray(existingCaseData.patientActorRules) ? existingCaseData.patientActorRules as string[] : []),
     },
     openingStatement: value.openingStatement,
   }
@@ -160,6 +198,12 @@ function normaliseRubric(value: Rubric): Rubric {
 }
 export function unpack<T>(value: { items: T[] } | T[]): T[] { return Array.isArray(value) ? value : value.items }
 export function apiError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
-  if (axios.isAxiosError(error)) return (error.response?.data as { message?: string } | undefined)?.message || fallback
+  if (axios.isAxiosError(error)) {
+    const message = (error.response?.data as { message?: string } | undefined)?.message
+    if (message) return message
+    if (error.code === 'ECONNABORTED') return 'The request took too long. Please try again.'
+    if (!error.response) return 'The service is temporarily unreachable. Check your connection and try again.'
+    return fallback
+  }
   return error instanceof Error ? error.message : fallback
 }

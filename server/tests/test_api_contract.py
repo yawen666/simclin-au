@@ -144,6 +144,67 @@ def test_case_catalog_keeps_vue_compatibility_aliases(api: tuple[TestClient, Dat
     assert isinstance(faculty_detail["caseData"], dict)
 
 
+def test_case_writes_return_canonical_detail_and_identical_patch_retry_is_idempotent(
+    api: tuple[TestClient, Database],
+) -> None:
+    client, database = api
+    headers, _user = login(client, "faculty")
+    rubric_id = client.get("/api/rubrics", headers=headers).json()["rubrics"][0]["id"]
+    content = {
+        "openingStatement": "I have had a headache since this morning.",
+        "patient": {"name": "Canonical Patient", "age": 38},
+        "caseData": {
+            "candidateInstructions": "Take a focused headache history.",
+            "learningObjectives": [],
+            "presentingComplaint": "A new headache.",
+            "atomicFacts": [],
+            "redFlags": [],
+        },
+    }
+    created = client.post(
+        "/api/cases",
+        headers=headers,
+        json={
+            "slug": "canonical-write-contract",
+            "title": "Canonical write contract",
+            "specialty": "General Medicine",
+            "setting": "General practice",
+            "summary": "A focused headache case.",
+            "rubricId": rubric_id,
+            "content": content,
+        },
+    )
+
+    assert created.status_code == 201
+    created_body = created.json()
+    case_id = created_body["id"]
+    assert created_body["case"]["id"] == case_id
+    assert created_body["title"] == "Canonical write contract"
+    assert created_body["patientName"] == "Canonical Patient"
+    assert created_body["content"]["caseData"]["presentingComplaint"] == "A new headache."
+
+    patch_payload = {
+        "title": "Canonical write contract updated",
+        "summary": "An updated focused headache case.",
+        "content": content,
+        "rubricId": rubric_id,
+    }
+    first = client.patch(f"/api/cases/{case_id}", headers=headers, json=patch_payload)
+    retry = client.patch(f"/api/cases/{case_id}", headers=headers, json=patch_payload)
+
+    assert first.status_code == 200
+    assert first.json()["version"] == 2
+    assert first.json()["case"]["title"] == "Canonical write contract updated"
+    assert retry.status_code == 200
+    assert retry.json()["version"] == 2
+    with database.connection() as connection:
+        version_count = connection.execute(
+            "SELECT COUNT(*) AS total FROM case_versions WHERE case_id=?",
+            (case_id,),
+        ).fetchone()["total"]
+    assert version_count == 2
+
+
 def test_faculty_case_and_rubric_validation(api: tuple[TestClient, Database]) -> None:
     client, _database = api
     headers, _user = login(client, "faculty")

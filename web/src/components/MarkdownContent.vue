@@ -39,4 +39,4 @@ md.inline.ruler.after('escape', 'math_inline', (state, silent) => {
 md.renderer.rules.math_inline = (tokens, index) => katex.renderToString(tokens[index]?.content ?? '', { throwOnError: false, output: 'html' })
 const rendered = computed(() => md.render(props.content || ''))
 </script>
-<template><div class="markdown-content" v-html="rendered"></div></template>
+<template><div class="markdown-content" data-no-translate lang="en-AU" v-html="rendered"></div></template>

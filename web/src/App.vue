@@ -20,6 +20,7 @@ function translateDocument() {
   let node: Node | null
   while ((node = walker.nextNode())) {
     const text = node as Text
+    if (text.parentElement?.closest('[data-no-translate]')) continue
     const current = text.textContent ?? ''
     const previous = lastText.get(text)
     if (!originalText.has(text) || (!localeChanged && previous !== undefined && current !== previous)) originalText.set(text, current)
@@ -32,6 +33,7 @@ function translateDocument() {
     lastText.set(text, next)
   }
   document.querySelectorAll<HTMLElement>('*').forEach(element => {
+    if (element.closest('[data-no-translate]')) return
     const attrs = originalAttrs.get(element) ?? {}
     let changed = false
     translatableAttrs.forEach(attribute => {
@@ -56,10 +58,13 @@ onMounted(async () => {
   await nextTick()
   translateDocument()
   observer = new MutationObserver(() => { if (!applying) translateDocument() })
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: translatableAttrs })
+  // Streamed clinical text changes character-by-character. Observing those text
+  // mutations would repeatedly scan the document and could translate user/model
+  // content that happens to match a UI label.
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: translatableAttrs })
 })
 watch(() => locale.locale, () => nextTick(translateDocument))
 onBeforeUnmount(() => observer?.disconnect())
 </script>
 
-<template><RouterView /></template>
+<template><a class="skip-link" href="#main-content">{{ locale.t('Skip to main content') }}</a><RouterView /></template>

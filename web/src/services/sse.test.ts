@@ -22,4 +22,22 @@ describe('parseSseStream', () => {
     for await (const event of parseSseStream(source)) events.push(event)
     expect(events).toEqual([{ type: 'delta', delta: 'Plain response' }, { type: 'done' }])
   })
+
+  it('emits comment keep-alives as internal heartbeat events across chunks', async () => {
+    const source = stream([': keep-', 'alive\n', '\ndata: {"type":"del', 'ta","delta":"Still here"}\n\n: ping\n\n'])
+    const events = []
+    for await (const event of parseSseStream(source)) events.push(event)
+    expect(events).toEqual([
+      { type: 'heartbeat' },
+      { type: 'delta', delta: 'Still here' },
+      { type: 'heartbeat' },
+    ])
+  })
+
+  it('does not replace a data event when its block also contains a comment', async () => {
+    const source = stream([': proxy note\n', 'data: {"type":"done","turnId":"t3"}\n\n'])
+    const events = []
+    for await (const event of parseSseStream(source)) events.push(event)
+    expect(events).toEqual([{ type: 'done', turnId: 't3' }])
+  })
 })

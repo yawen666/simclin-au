@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { nextTick } from 'vue'
 import { api } from '@/services/api'
 import type { Role } from '@/types'
 import LandingView from '@/views/LandingView.vue'
@@ -40,9 +41,40 @@ router.beforeEach((to) => {
   const required = to.matched.find((record) => record.meta.role)?.meta.role as Role | undefined
   if (!required) return true
   const raw = localStorage.getItem('simclin-demo-user')
-  const user = raw ? JSON.parse(raw) as { role?: Role } : null
+  let user: { role?: Role } | null = null
+  try { user = raw ? JSON.parse(raw) as { role?: Role } : null }
+  catch {
+    localStorage.removeItem('simclin-demo-user')
+    api.clearToken()
+  }
   if (!api.getToken() || user?.role !== required) return { name: 'landing', query: { next: to.fullPath } }
   return true
+})
+
+const routeTitles: Record<string, string> = {
+  landing: 'Choose workspace',
+  'student-home': 'Student overview',
+  'student-cases': 'Case library',
+  'student-case': 'Case details',
+  consultation: 'Clinical consultation',
+  feedback: 'Formative feedback',
+  'student-history': 'Practice history',
+  'faculty-home': 'Faculty dashboard',
+  'faculty-cases': 'Case management',
+  'case-new': 'Create case',
+  'case-edit': 'Edit case',
+  'case-preview': 'Case preview',
+  rubrics: 'Rubric editor',
+  results: 'Student results',
+  'result-detail': 'Attempt review',
+  insights: 'Teaching insights',
+}
+
+router.afterEach(async (to) => {
+  const name = typeof to.name === 'string' ? to.name : ''
+  document.title = `${routeTitles[name] || 'Learning workspace'} | SimClin AU`
+  await nextTick()
+  window.requestAnimationFrame(() => document.getElementById('main-content')?.focus({ preventScroll: true }))
 })
 
 declare module 'vue-router' { interface RouteMeta { role?: Role; immersive?: boolean } }

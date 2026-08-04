@@ -57,11 +57,32 @@ To deploy the current demo:
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` unless the provider changes |
 | `DEEPSEEK_MODEL` | Current configured model name |
 | `AI_PROVIDER` | `deepseek`; never use `mock` for a real trial |
-| `AI_REQUESTS_PER_HOUR` | Per-client preview budget; defaults to `60` in the single API process |
+| `AI_REQUESTS_PER_HOUR` | Per-authenticated-user AI-workflow ceiling; defaults to `60` per hour |
+| `AI_REQUESTS_PER_IP_PER_HOUR` | Shared per-IP ceiling across anonymous profiles; defaults to `180` per hour |
+| `AI_GLOBAL_REQUESTS_PER_HOUR` | Single-process global ceiling; defaults to `360` per hour |
+| `AUTH_REQUESTS_PER_IP_PER_HOUR` | Sign-in attempts admitted before any SQLite write, per real client IP; defaults to `120` per hour |
+| `AUTH_GLOBAL_REQUESTS_PER_HOUR` | Sign-in attempts admitted before any SQLite write, process-wide; defaults to `1200` per hour |
+| `ANONYMOUS_PROFILES_PER_IP_PER_HOUR` | New browser identities per IP per hour; defaults to `20` |
+| `ANONYMOUS_PROFILES_GLOBAL_PER_HOUR` | New browser identities process-wide per hour; defaults to `200` |
+| `MAX_ANONYMOUS_STUDENT_PROFILES` | Hard cap on saved anonymous identities; defaults to `5000` |
+| `SESSION_REQUESTS_PER_USER_PER_HOUR` | Session-create requests admitted before SQLite write, per student; defaults to `60` per hour |
+| `SESSION_REQUESTS_PER_IP_PER_HOUR` | Session-create requests admitted before SQLite write, per real client IP; defaults to `240` per hour |
+| `SESSION_GLOBAL_REQUESTS_PER_HOUR` | Session-create requests admitted before SQLite write, process-wide; defaults to `1000` per hour |
+| `SESSION_STARTS_PER_USER_PER_HOUR` | New sessions per student per hour; defaults to `30` |
+| `SESSION_STARTS_PER_IP_PER_HOUR` | New sessions per IP per hour; defaults to `120` |
+| `SESSION_STARTS_GLOBAL_PER_HOUR` | New sessions process-wide per hour; defaults to `500` |
+| `MAX_SESSIONS_PER_STUDENT` | Hard cap on saved sessions per student; defaults to `100` |
+| `MAX_TOTAL_SESSIONS` | Hard cap on all saved sessions; defaults to `50000` |
 | `WEB_ORIGIN` | Exact deployed frontend origin, or a comma-separated allowlist |
 | `LOG_LEVEL` | `info` by default |
 
 The static frontend receives only `VITE_API_BASE_URL` and `VITE_BASE_PATH`; it must never receive the model key.
+
+### Trusted proxy and client-IP limits
+
+The Render start command uses Uvicorn's official [`--proxy-headers` and `--forwarded-allow-ips`](https://www.uvicorn.org/settings/#http) options. Uvicorn, rather than application code, validates the immediate peer and populates `request.client`; every IP-based gate uses that value and never reads `X-Forwarded-For` directly. Trusting every immediate peer is safe for this Render web service because [Render documents that the bound public HTTP port is not directly reachable from the internet](https://render.com/docs/web-services#port-binding): inbound requests are forwarded to it by Render's managed load balancer. If the API moves to a host where its Uvicorn port can be reached directly, replace `"*"` with the exact proxy IPs or networks before launch, otherwise a caller could spoof forwarding headers.
+
+Authentication and session creation each have a broader request gate that runs before any SQLite write reservation, followed by the lower successful profile/session creation budgets. Existing browser visitors are resolved and returned through a read-only connection without an `UPDATE`. Capacity is checked read-only first and rechecked under `BEGIN IMMEDIATE` solely to preserve correctness under concurrent creation.
 
 ## SQLite durability: decision required before a stable pilot
 
@@ -82,6 +103,14 @@ Do not silently make this paid-infrastructure change. Once approved, update the 
 Ending a consultation persists `evaluation_status=queued` and returns HTTP 202. A running API changes the task to `running`, retries one transient provider error, and saves either the completed result or a retryable failure state. During graceful shutdown, an interrupted evaluation is returned to `queued`; on startup, the coordinator reclaims records left `queued` or `running` when no evaluation row exists.
 
 This design prevents a page navigation or ordinary process restart from losing the work item, provided the SQLite file is on durable storage. Deployment health checks should validate `/api/health`, then a synthetic mock-provider environment should validate the complete API/SSE contract before any real-model smoke test.
+
+After the deployed health endpoint reports the expected commit in `buildId`, run the sanitised real-provider deployment check from the repository root:
+
+```bash
+npm run test:e2e:online:real
+```
+
+It targets the Render API and frontend origin by default, creates fresh anonymous synthetic student profiles, exercises all five published cases through real patient and evaluator calls, checks strict SSE ordering, idempotent retry, results/history and cross-profile isolation, and prints only fixed status fields. It does not read or print a provider key, JWT, model response, prompt or hidden case fact. Override `SIMCLIN_ONLINE_API_BASE` and `SIMCLIN_ONLINE_WEB_ORIGIN` only when deliberately testing another HTTPS deployment.
 
 ## GitHub Pages product showcase
 

@@ -109,26 +109,19 @@ def _student_screened_red_flag(
     case_content: dict[str, Any], transcript: list[dict[str, Any]], red_flag_id: str
 ) -> bool:
     case_data = case_content.get("caseData") or {}
-    facts = {
-        fact.get("id"): fact
-        for fact in case_data.get("atomicFacts", [])
-        if isinstance(fact, dict) and isinstance(fact.get("id"), str)
-    }
     definition = next(
         (flag for flag in case_data.get("redFlags", []) if isinstance(flag, dict) and flag.get("id") == red_flag_id),
         None,
     )
-    linked_ids = definition.get("linkedFactIds", []) if definition else [red_flag_id]
-    triggers = [
-        trigger.strip().lower()
-        for fact_id in linked_ids
-        for trigger in (facts.get(fact_id) or {}).get("triggers", [])
-        if isinstance(trigger, str) and len(trigger.strip()) >= 3
-    ]
+    linked_ids = {
+        value
+        for value in (definition.get("linkedFactIds", []) if definition else [red_flag_id])
+        if isinstance(value, str)
+    }
     return any(
-        turn.get("speaker") == "student"
+        turn.get("speaker") == "patient"
         and turn.get("status") not in {"failed", "pending"}
-        and any(trigger in str(turn.get("content", "")).lower() for trigger in triggers)
+        and bool(linked_ids.intersection(value for value in turn.get("disclosedFactIds", []) if isinstance(value, str)))
         for turn in transcript
     )
 
