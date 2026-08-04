@@ -181,6 +181,20 @@ def _login_student(client: httpx.Client, visitor_id: str) -> tuple[dict[str, str
     return _auth_headers(body.get("token"), "student-login"), user_id
 
 
+def _login_faculty(client: httpx.Client) -> dict[str, str]:
+    body = _request_json(
+        client,
+        "POST",
+        "/auth/demo",
+        stage="faculty-open-demo-login",
+        json_body={"role": "faculty"},
+    )
+    user = body.get("user")
+    if not isinstance(user, dict) or user.get("role") != "faculty":
+        raise OnlineE2EFailure("faculty-open-demo-login")
+    return _auth_headers(body.get("token"), "faculty-open-demo-login")
+
+
 def _validate_health(body: dict[str, Any]) -> str:
     valid = (
         body.get("status") == "ok"
@@ -663,15 +677,9 @@ def run_online_e2e() -> RunOutcome:
             headers=first_headers,
             code="FORBIDDEN",
         )
-        _expect_error(
-            client,
-            "POST",
-            "/auth/demo",
-            stage="faculty-access-protection",
-            status=403,
-            json_body={"role": "faculty"},
-            code="FACULTY_ACCESS_REQUIRED",
-        )
+        faculty_headers = _login_faculty(client)
+        _request_json(client, "GET", "/auth/me", stage="faculty-auth-me", headers=faculty_headers)
+        _request_json(client, "GET", "/rubrics", stage="faculty-rubric-access", headers=faculty_headers)
 
         cases = _published_cases(client, first_headers)
         queued_cases: list[QueuedCase] = []
