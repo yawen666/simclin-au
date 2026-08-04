@@ -19,7 +19,6 @@ def test_health_and_validation_envelope(api: tuple[TestClient, Database]) -> Non
         "database": "ok",
         "aiProvider": "mock",
         "facultyAccessProtected": False,
-        "facultyAccessMode": "open-demo",
         "runtime": "python",
         "schemaVersion": 5,
     }
@@ -99,7 +98,6 @@ def test_faculty_demo_access_code_can_protect_hosted_preview() -> None:
         assert allowed.status_code == 200
         assert "faculty-test-access-code" not in allowed.text
         assert client.get("/api/health").json()["facultyAccessProtected"] is True
-        assert client.get("/api/health").json()["facultyAccessMode"] == "protected"
 
         student_headers = {"Authorization": f"Bearer {student_login.json()['token']}"}
         started = client.post("/api/sessions", headers=student_headers, json={"caseId": 1})
@@ -117,34 +115,6 @@ def test_faculty_demo_access_code_can_protect_hosted_preview() -> None:
         )
         assert limited.status_code == 429
         assert limited.json()["code"] == "AI_RATE_LIMITED"
-    database.close()
-
-
-def test_faculty_open_demo_mode_never_requires_a_frontend_secret() -> None:
-    database = Database(":memory:")
-    settings = load_settings(
-        {
-            "environment": "test",
-            "database_path": ":memory:",
-            "jwt_secret": "unit-test-secret-at-least-32-characters",
-            "faculty_demo_access_code": "kept-for-protected-deployments",
-            "faculty_demo_open_access": True,
-            "ai_provider": "mock",
-            "deepseek_api_key": "",
-            "web_origin": "http://localhost:5173",
-        }
-    )
-    application = create_app(settings=settings, database=database, ai_provider=MockAiProvider())
-    with TestClient(application) as client:
-        response = client.post("/api/auth/demo", json={"role": "faculty"})
-        assert response.status_code == 200
-        assert response.json()["user"]["role"] == "faculty"
-        health = client.get("/api/health").json()
-        assert health == {
-            **health,
-            "facultyAccessProtected": False,
-            "facultyAccessMode": "open-demo",
-        }
     database.close()
 
 

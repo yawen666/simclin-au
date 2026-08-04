@@ -13,7 +13,7 @@ Python API 保留了现有 Vue 前端的 REST、错误包装与 SSE 契约。发
 | --- | --- | --- |
 | Ruff Python 静态与格式检查 | 通过 | 36 个 Python 文件通过 `ruff check` 与 `ruff format --check` |
 | Python `compileall` + Vue/Vite 生产构建 | 通过 | API 编译通过；Vue 生产包成功构建 |
-| FastAPI/SQLite `pytest` 单元与 API 契约 | 通过 | 71/71；包含旧 Node schema 迁移、代理/容量保护、open-demo 教师入口、合成学生姓名迁移和 online-E2E validator |
+| FastAPI/SQLite `pytest` 单元与 API 契约 | 通过 | 69/69；包含旧 Node schema 迁移、代理/容量保护和 1.0 hardening/online-E2E validator |
 | Vue Vitest | 通过 | 9/9（4 个测试文件） |
 | Playwright 桌面端与移动端 | 通过 | 12/12，14.5 秒；移动端覆盖到问诊、评价和反馈完整闭环 |
 | 真实 DeepSeek smoke | 通过 | 1/1；仅记录脱敏状态、病例标识、评分与 criterion 数量 |
@@ -28,7 +28,7 @@ Python API 保留了现有 Vue 前端的 REST、错误包装与 SSE 契约。发
 - 演示角色 JWT 登录、学生/教师越权拒绝、统一 `code/message/error` 错误包装。
 - 学生身份按浏览器匿名 `visitorId` 隔离并可重置；同一浏览器保持历史，不同访客不能读取对方 session、history 或 result。
 - JWT 的用户 ID、用户名和角色每次请求均与数据库核对；学生不能读取精确 rubric，教师错误访问码受尝试频率限制。
-- 当前公开演示通过服务端 `open-demo` 模式提供教师一键入口，前端不携带访问码；关闭该模式后生产环境必须配置教师访问码。DeepSeek key 始终只保存在服务端；学生病例详情不能返回诊断、原子事实、教师注释或评分材料。
+- 生产环境必须配置教师访问码和 DeepSeek key；学生病例详情不能返回诊断、原子事实、教师注释或评分材料。
 - 病例、评分表、发布版本、复制、归档、预览、成绩、改分、历史和洞察的现有 REST 响应形状。
 - `/messages` 同时接受 `message` 和旧 `content` 字段；SSE 依次发送 `meta`/`delta`/`complete` 或 `error`，完成负载保留 `type: done`。
 - `clientMessageId` 支持已提交问答的无模型重放、失败重试与内容冲突拒绝，避免断网重试造成重复 turn 和重复计费。

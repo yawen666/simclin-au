@@ -190,8 +190,7 @@ def _validate_health(body: dict[str, Any]) -> str:
         and body.get("database") == "ok"
         and body.get("aiProvider") == "deepseek"
         and body.get("aiConfigured") is True
-        and body.get("facultyAccessProtected") is False
-        and body.get("facultyAccessMode") == "open-demo"
+        and body.get("facultyAccessProtected") is True
     )
     build_id = body.get("buildId")
     if not valid or not isinstance(build_id, str) or BUILD_ID_PATTERN.fullmatch(build_id) is None:

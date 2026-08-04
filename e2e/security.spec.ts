@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { API_BASE, apiLogin, enterWorkspace, expectApiOk } from './helpers'
+import { API_BASE, apiLogin, enterWorkspace, expectApiOk, FACULTY_ACCESS_CODE } from './helpers'
 
 test.describe('role protection', () => {
   test('protected routes redirect anonymous and wrong-role browser sessions', async ({ page }) => {
@@ -36,17 +36,22 @@ test.describe('role protection', () => {
     expect(await health.json()).toMatchObject({ status: 'ok', aiProvider: 'mock', database: 'ok' })
   })
 
-  test('open demo mode grants faculty access without shipping a frontend secret', async ({ request }) => {
-    const login = await request.post(`${API_BASE}/auth/demo`, { data: { role: 'faculty' } })
-    await expectApiOk(login, 'open demo faculty access')
-    expect(await login.json()).toMatchObject({ user: { role: 'faculty', name: 'Dr Sarah Chen' } })
+  test('faculty API access requires the configured hosted-preview code', async ({ request }) => {
+    const missing = await request.post(`${API_BASE}/auth/demo`, { data: { role: 'faculty' } })
+    expect(missing.status()).toBe(403)
+    expect(await missing.json()).toMatchObject({ code: 'FACULTY_ACCESS_REQUIRED' })
 
-    const health = await request.get(`${API_BASE}/health`)
-    await expectApiOk(health, 'open demo health check')
-    expect(await health.json()).toMatchObject({
-      facultyAccessProtected: false,
-      facultyAccessMode: 'open-demo',
+    const incorrect = await request.post(`${API_BASE}/auth/demo`, {
+      data: { role: 'faculty', accessCode: 'incorrect-e2e-code' },
     })
+    expect(incorrect.status()).toBe(403)
+    expect(await incorrect.json()).toMatchObject({ code: 'FACULTY_ACCESS_REQUIRED' })
+
+    const valid = await request.post(`${API_BASE}/auth/demo`, {
+      data: { role: 'faculty', accessCode: FACULTY_ACCESS_CODE },
+    })
+    await expectApiOk(valid, 'faculty access with configured code')
+    expect(await valid.json()).toMatchObject({ user: { role: 'faculty' } })
   })
 
   test('backend blocks incomplete case publication and archiving an in-use rubric', async ({ request }) => {

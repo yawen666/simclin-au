@@ -22,8 +22,6 @@ services:
         generateValue: true
       - key: FACULTY_DEMO_ACCESS_CODE
         generateValue: true
-      - key: FACULTY_DEMO_OPEN_ACCESS
-        value: true
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPSEEK_BASE_URL

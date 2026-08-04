@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from .identities import synthetic_student_name
 from .utils import compact_json, now_iso
 
 DDL = """
@@ -255,16 +254,6 @@ class Database:
                       AND EXISTS (SELECT 1 FROM evaluations WHERE evaluations.session_id=sessions.id)
                 """)
                 self._seed(connection)
-                anonymous_students = connection.execute(
-                    "SELECT id,username FROM users WHERE username GLOB 'demo_student_*'"
-                ).fetchall()
-                for student in anonymous_students:
-                    digest = student["username"].removeprefix("demo_student_")
-                    if len(digest) >= 8 and all(character in "0123456789abcdef" for character in digest[:8].lower()):
-                        connection.execute(
-                            "UPDATE users SET display_name=? WHERE id=?",
-                            (synthetic_student_name(digest), student["id"]),
-                        )
                 connection.execute("""
                     UPDATE case_versions
                     SET rubric_id=(

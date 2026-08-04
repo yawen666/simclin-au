@@ -506,7 +506,6 @@ Object.assign(zh, {
   , 'Choose another practice status or show all attempts.': '请选择其他练习状态，或查看全部练习。'
   , 'Complete every domain and behaviour anchor before publishing.': '发布前请完整填写每个评价域及其行为锚点。'
   , 'Could not enter this workspace. Check the access code and try again.': '无法进入此工作区，请检查访问码后重试。'
-  , 'Could not enter this workspace. Please try again.': '无法进入此工作区，请稍后重试。'
   , 'Discard unsaved case changes?': '放弃尚未保存的病例修改吗？'
   , 'Discard unsaved rubric changes?': '放弃尚未保存的评分表修改吗？'
   , 'Educator feedback': '教师反馈'

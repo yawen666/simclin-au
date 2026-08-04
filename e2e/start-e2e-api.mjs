@@ -34,7 +34,6 @@ const child = spawn(python, [
     DATABASE_PATH: databasePath,
     JWT_SECRET: 'simclin-e2e-isolated-jwt-secret',
     FACULTY_DEMO_ACCESS_CODE: 'simclin-e2e-faculty-code',
-    FACULTY_DEMO_OPEN_ACCESS: 'true',
     AI_PROVIDER: 'mock',
     DEEPSEEK_API_KEY: '',
     LOG_LEVEL: 'warn',

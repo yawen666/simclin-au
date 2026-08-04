@@ -150,11 +150,9 @@ def test_jwt_round_trip_and_tamper_rejection() -> None:
 
 
 def test_environment_precedence_and_production_ai_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("FACULTY_DEMO_OPEN_ACCESS", raising=False)
     monkeypatch.setenv("NODE_ENV", "development")
     monkeypatch.setenv("ENVIRONMENT", "test")
     assert load_settings().environment == "test"
-    assert load_settings({"environment": "development"}).faculty_demo_open_access is True
 
     with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
         load_settings(
@@ -167,31 +165,6 @@ def test_environment_precedence_and_production_ai_configuration(monkeypatch: pyt
                 "deepseek_api_key": "",
             }
         )
-
-    open_demo = load_settings(
-        {
-            "environment": "production",
-            "jwt_secret": "production-secret-at-least-32-characters",
-            "web_origin": "https://simclin.example",
-            "faculty_demo_access_code": "",
-            "faculty_demo_open_access": True,
-            "ai_provider": "deepseek",
-            "deepseek_api_key": "configured-test-value",
-        }
-    )
-    assert open_demo.faculty_demo_open_access is True
-
-    protected_demo = load_settings(
-        {
-            "environment": "production",
-            "jwt_secret": "production-secret-at-least-32-characters",
-            "web_origin": "https://simclin.example",
-            "faculty_demo_access_code": "faculty-code-at-least-12-characters",
-            "ai_provider": "deepseek",
-            "deepseek_api_key": "configured-test-value",
-        }
-    )
-    assert protected_demo.faculty_demo_open_access is False
 
 
 def test_single_process_rate_limiter_returns_retry_window() -> None:

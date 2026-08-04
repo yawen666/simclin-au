@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { enterWorkspace } from './helpers'
+import { enterWorkspace, FACULTY_ACCESS_CODE } from './helpers'
 
 test.describe('student and role entry', () => {
   test('settings button toggles the interface language and persists the choice', async ({ page }) => {
@@ -19,19 +19,23 @@ test.describe('student and role entry', () => {
 
     await expect(page).toHaveTitle('Choose workspace | SimClin AU')
     await expect(page.getByRole('heading', { name: /Build clinical confidence/i })).toBeVisible()
-    await expect(page.getByText('No sign-in required for this preview')).toBeVisible()
-    await expect(page.getByLabel('Faculty access code')).toHaveCount(0)
+    await expect(page.getByText('Student preview needs no sign-in; hosted faculty access requires a code')).toBeVisible()
 
     await page.getByRole('button', { name: /Enter as Student/i }).click()
     await expect(page).toHaveURL(/\/student\/?$/)
     await expect(page.getByText('Student workspace')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /Good (morning|afternoon), [A-Z][a-z]+ [A-Z][a-z]+\./ })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Good (morning|afternoon), Student [A-F0-9]{6}\./ })).toBeVisible()
     await expect.poll(() => page.evaluate(() => Boolean(localStorage.getItem('simclin-demo-token')))).toBe(true)
 
     await page.getByRole('button', { name: 'Switch role' }).click()
     await expect(page).toHaveURL(/\/$/)
     await expect.poll(() => page.evaluate(() => localStorage.getItem('simclin-demo-token'))).toBeNull()
 
+    await page.getByRole('button', { name: /Enter as Faculty/i }).click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.getByRole('alert')).toContainText('Enter the faculty access code')
+
+    await page.getByLabel('Faculty access code').fill(FACULTY_ACCESS_CODE)
     await page.getByRole('button', { name: /Enter as Faculty/i }).click()
     await expect(page).toHaveURL(/\/faculty\/?$/)
     await expect(page.getByRole('heading', { name: 'Teaching overview' })).toBeVisible()
