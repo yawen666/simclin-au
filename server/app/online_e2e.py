@@ -189,6 +189,7 @@ def _validate_health(body: dict[str, Any]) -> str:
         and body.get("schemaVersion") == 5
         and body.get("database") == "ok"
         and body.get("aiProvider") == "deepseek"
+        and body.get("aiModel") == "deepseek-v4-flash"
         and body.get("aiConfigured") is True
         and body.get("facultyAccessProtected") is True
     )

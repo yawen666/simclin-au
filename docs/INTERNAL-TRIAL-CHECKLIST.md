@@ -29,7 +29,7 @@ npm run dev
 
 - [ ] `npm run lint:api && npm run build && npm run test && npm run test:e2e` 全部通过。
 - [ ] 真实模型 smoke、五病例 regression 和线上 `npm run test:e2e:online:real` 已通过，输出中无 key、token、模型正文、prompt 或患者隐藏事实。
-- [ ] `/api/health` 返回 `status=ok`、`database=ok`、`runtime=python`、`schemaVersion=5` 和 `facultyAccessProtected=true`，不返回任何密钥或访问码内容。
+- [ ] `/api/health` 返回 `status=ok`、`database=ok`、`runtime=python`、`schemaVersion=5`、`aiModel=deepseek-v4-flash` 和 `facultyAccessProtected=true`，不返回任何密钥或访问码内容。
 - [ ] 生产环境缺少 `FACULTY_DEMO_ACCESS_CODE` 或 DeepSeek key 时启动失败；教师访问码只从 Render Environment 页面向授权教师分享。
 - [ ] 学生病例详情响应不包含 `content`、`caseData`、`clinicalTruth`、`atomicFacts`、教师注释或评分材料。
 - [ ] 已确认只启动一个 Uvicorn worker，未水平扩容 API 实例。

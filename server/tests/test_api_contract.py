@@ -18,6 +18,7 @@ def test_health_and_validation_envelope(api: tuple[TestClient, Database]) -> Non
         "status": "ok",
         "database": "ok",
         "aiProvider": "mock",
+        "aiModel": "deepseek-v4-flash",
         "facultyAccessProtected": False,
         "runtime": "python",
         "schemaVersion": 5,

@@ -64,6 +64,7 @@ def test_health_validation_requires_deployed_ai_contract() -> None:
             "database": "ok",
             "aiConfigured": True,
             "aiProvider": "deepseek",
+            "aiModel": "deepseek-v4-flash",
             "facultyAccessProtected": True,
         }
     )
@@ -80,6 +81,7 @@ def test_health_validation_requires_deployed_ai_contract() -> None:
                 "database": "ok",
                 "aiConfigured": False,
                 "aiProvider": "mock",
+                "aiModel": "deepseek-v4-flash",
                 "facultyAccessProtected": False,
             }
         )

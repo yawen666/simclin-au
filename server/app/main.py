@@ -209,6 +209,7 @@ def create_app(
             "database": "ok",
             "aiConfigured": bool(resolved_settings.deepseek_api_key),
             "aiProvider": resolved_settings.ai_provider,
+            "aiModel": resolved_settings.deepseek_model,
             "facultyAccessProtected": bool(resolved_settings.faculty_demo_access_code),
             "timestamp": now_iso(),
         }
